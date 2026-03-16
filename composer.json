@@ -1,0 +1,39 @@
+{
+  "name": "sodaho/env-loader",
+  "description": "Lightweight .env file loader for PHP",
+  "keywords": ["env", "dotenv", "environment", "config", "loader"],
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "sodaho",
+      "homepage": "https://github.com/sodaho"
+    }
+  ],
+  "require": {
+    "php": "^8.1"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5",
+    "phpstan/phpstan": "^2.0",
+    "friendsofphp/php-cs-fixer": "^3.64"
+  },
+  "autoload": {
+    "psr-4": {
+      "Sodaho\\EnvLoader\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Sodaho\\EnvLoader\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "vendor/bin/phpunit",
+    "test:coverage": "vendor/bin/phpunit --coverage-html coverage",
+    "analyse": "vendor/bin/phpstan analyse",
+    "cs": "vendor/bin/php-cs-fixer fix --dry-run --diff",
+    "cs:fix": "vendor/bin/php-cs-fixer fix",
+    "ci": ["@cs", "@analyse", "@test"]
+  }
+}
