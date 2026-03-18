@@ -110,6 +110,22 @@ class EnvLoaderTest extends TestCase
         $this->assertEquals('secret', $_ENV['_TEST_PRIVATE']);
     }
 
+    public function testStripsExportPrefix(): void
+    {
+        $path = $this->createEnvFile('export TEST_EXPORT=value');
+        EnvLoader::load($path);
+
+        $this->assertEquals('value', $_ENV['TEST_EXPORT']);
+    }
+
+    public function testStripsExportPrefixWithQuotes(): void
+    {
+        $path = $this->createEnvFile('export TEST_EXPORT_Q="hello world"');
+        EnvLoader::load($path);
+
+        $this->assertEquals('hello world', $_ENV['TEST_EXPORT_Q']);
+    }
+
     // ============================================
     // Quotes
     // ============================================

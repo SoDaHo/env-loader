@@ -81,6 +81,9 @@ SINGLE='Hello World'
 API_KEY=secret123 # this is ignored
 QUOTED="value with # hash" # comment outside quotes
 
+# export prefix
+export DB_PORT=3306
+
 # Whitespace is trimmed
   SPACED_KEY  =  value
 ```
