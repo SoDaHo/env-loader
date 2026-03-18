@@ -136,17 +136,17 @@ class EnvLoader
             return '';
         }
 
-        // Double quoted
+        // Double quoted: allow only non-quote/non-backslash chars or escape sequences
         if (str_starts_with($value, '"')) {
-            if (preg_match('/^"(.*?)"\s*(#.*)?$/', $value, $matches)) {
+            if (preg_match('/^"((?:[^"\\\\]|\\\\.)*)"\s*(#.*)?$/', $value, $matches)) {
                 return self::unescapeDoubleQuoted($matches[1]);
             }
             throw new Exception\UnterminatedQuoteException("Unterminated double quote: $value");
         }
 
-        // Single quoted
+        // Single quoted: no escape processing, no single quotes inside
         if (str_starts_with($value, "'")) {
-            if (preg_match("/^'(.*?)'\s*(#.*)?$/", $value, $matches)) {
+            if (preg_match("/^'([^']*)'\s*(#.*)?$/", $value, $matches)) {
                 return $matches[1];
             }
             throw new Exception\UnterminatedQuoteException("Unterminated single quote: $value");
