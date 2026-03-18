@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- PHP 8.1+
+- PHP 8.2+
 - Composer
 
 ## Setup
@@ -72,4 +72,4 @@ composer test:coverage
 3. Run `composer ci` - all checks must pass
 4. Submit PR against `main` branch
 
-CI will automatically run tests, static analysis, and code style checks on PHP 8.1, 8.2, 8.3, and 8.4.
+CI will automatically run tests, static analysis, and code style checks on PHP 8.2, 8.3, 8.4, and 8.5.
