@@ -443,4 +443,24 @@ class EnvLoaderTest extends TestCase
 
         $this->assertEquals([], $result);
     }
+
+    public function testParseThrowsFileNotFoundException(): void
+    {
+        $this->expectException(FileNotFoundException::class);
+        EnvLoader::parse('/nonexistent/path/.env');
+    }
+
+    public function testParseThrowsInvalidKeyException(): void
+    {
+        $path = $this->createEnvFile('123INVALID=value');
+        $this->expectException(InvalidKeyException::class);
+        EnvLoader::parse($path);
+    }
+
+    public function testParseThrowsUnterminatedQuoteException(): void
+    {
+        $path = $this->createEnvFile('TEST_KEY="unterminated');
+        $this->expectException(UnterminatedQuoteException::class);
+        EnvLoader::parse($path);
+    }
 }
