@@ -16,7 +16,7 @@
 - UTF-8 BOM handling for Windows-created files.
 - TOCTOU protection for file reading.
 - PHPStan level 9 static analysis.
-- GitHub Actions CI for PHP 8.1, 8.2, 8.3, 8.4.
+- GitHub Actions CI for PHP 8.2, 8.3, 8.4, 8.5.
 
 [Unreleased]: https://github.com/SoDaHo/env-loader/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/SoDaHo/env-loader/releases/tag/v1.0.0
