@@ -53,7 +53,7 @@ composer analyse
 
 ## Tests
 
-Tests use PHPUnit 10. Run with:
+Tests use PHPUnit 11. Run with:
 
 ```bash
 composer test
