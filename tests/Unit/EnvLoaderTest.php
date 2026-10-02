@@ -17,6 +17,7 @@ use Sodaho\EnvLoader\Exception\InvalidKeyException;
 use Sodaho\EnvLoader\Exception\InvalidLineException;
 use Sodaho\EnvLoader\Exception\InvalidValueException;
 use Sodaho\EnvLoader\Exception\MissingRequiredKeyException;
+use Sodaho\EnvLoader\Exception\TrailingCharactersException;
 use Sodaho\EnvLoader\Exception\UnterminatedQuoteException;
 
 class EnvLoaderTest extends TestCase
@@ -484,7 +485,7 @@ class EnvLoaderTest extends TestCase
         // Elsewhere this passes without proving anything.
         $output = $this->parseInChildProcess($path, ['-d', 'pcre.jit=1']);
 
-        $this->assertSame(UnterminatedQuoteException::class, $output);
+        $this->assertSame(TrailingCharactersException::class, $output);
     }
 
     public function testPcreNeverSeesFileContent(): void
@@ -505,7 +506,7 @@ class EnvLoaderTest extends TestCase
         $output = $this->parseInChildProcess($path, [], $shims);
 
         $this->assertStringStartsWith('PCRE: ', $output);
-        $this->assertStringEndsWith(UnterminatedQuoteException::class, $output);
+        $this->assertStringEndsWith(TrailingCharactersException::class, $output);
         $this->assertStringNotContainsString('hunter2', $output);
 
         // The replacements catch unqualified calls only: there must be no other way to PCRE in the source
@@ -643,6 +644,7 @@ class EnvLoaderTest extends TestCase
             'comment directly after double quote' => ['TEST_A="v"#c', ['TEST_A' => 'v']],
             'comment after single quote' => ["TEST_A='v' # c", ['TEST_A' => 'v']],
             'any whitespace between quote and comment' => ["TEST_A=\"v\" \t\r\v\f# c", ['TEST_A' => 'v']],
+            'whitespace after quote without comment' => ["TEST_A='v' \t\v\f\nTEST_B=1", ['TEST_A' => 'v', 'TEST_B' => '1']],
             'comment directly after single quote' => ["TEST_A='v'#c", ['TEST_A' => 'v']],
             'double quotes in comment after double-quoted value' => ['TEST_A="a" # "b"', ['TEST_A' => 'a']],
             'single quotes in comment after single-quoted value' => ["TEST_A='a' # 'b'", ['TEST_A' => 'a']],
@@ -693,11 +695,11 @@ class EnvLoaderTest extends TestCase
 
         // As in 1.0.0, whitespace is what PCRE's \s matches: on macOS, UTF-8 locales include the byte A0
         setlocale(LC_CTYPE, 'en_US.UTF-8', 'C.UTF-8');
-        $expected = preg_match('/\s/', "\xA0") === 1 ? ['TEST_A' => 'v'] : UnterminatedQuoteException::class;
+        $expected = preg_match('/\s/', "\xA0") === 1 ? ['TEST_A' => 'v'] : TrailingCharactersException::class;
 
         try {
             $result = EnvLoader::parse($path);
-        } catch (UnterminatedQuoteException $e) {
+        } catch (TrailingCharactersException $e) {
             $result = $e::class;
         }
 
@@ -748,6 +750,8 @@ class EnvLoaderTest extends TestCase
             'text directly after double quote' => ['TEST_KEY="hunter2"tail', 'Unexpected characters after closing double quote'],
             'text after single quote' => ["TEST_KEY='hunter2' tail", 'Unexpected characters after closing single quote'],
             'doubled single quote' => ["TEST_KEY='hunter2''tail'", 'Unexpected characters after closing single quote'],
+            'NUL after double quote' => ["TEST_KEY=\"hunter2\"\0# tail", 'Unexpected characters after closing double quote'],
+            'non-breaking space after single quote' => ["TEST_KEY='hunter2'\xC2\xA0# tail", 'Unexpected characters after closing single quote'],
         ];
     }
 
@@ -760,8 +764,11 @@ class EnvLoaderTest extends TestCase
 
         try {
             EnvLoader::parse($path);
-            $this->fail('Expected UnterminatedQuoteException');
-        } catch (UnterminatedQuoteException $e) {
+            $this->fail('Expected UnterminatedQuoteException or TrailingCharactersException');
+        } catch (UnterminatedQuoteException | TrailingCharactersException $e) {
+            // An unterminated quote and text after a closing one are different errors
+            $unterminated = str_starts_with($problem, 'Unterminated');
+            $this->assertSame($unterminated ? UnterminatedQuoteException::class : TrailingCharactersException::class, $e::class);
             $this->assertSame("$problem for key \"TEST_KEY\" in $path on line 4", $e->getMessage());
 
             // The stack trace carries the arguments, but not those holding file content
@@ -858,6 +865,14 @@ class EnvLoaderTest extends TestCase
             $this->fail('Expected InvalidLineException');
         } catch (InvalidLineException) {
             $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
+    }
+
+    public function testExceptionsForTheContentOfTheFileAreSiblings(): void
+    {
+        // Each can be caught on its own; all of them as EnvLoaderException
+        foreach ([InvalidLineException::class, InvalidKeyException::class, UnterminatedQuoteException::class, TrailingCharactersException::class] as $class) {
+            $this->assertSame(EnvLoaderException::class, get_parent_class($class));
         }
     }
 

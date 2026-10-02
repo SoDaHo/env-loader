@@ -21,6 +21,7 @@ final class EnvLoader
      * @throws Exception\InvalidLineException
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      * @throws Exception\MissingRequiredKeyException
      *
      * @return array<string, string> The values of the file, whether or not they were written to $_ENV
@@ -99,6 +100,7 @@ final class EnvLoader
      * @throws Exception\InvalidLineException
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      *
      * @return array<string, string>
      */
@@ -221,6 +223,7 @@ final class EnvLoader
      * @throws Exception\InvalidLineException
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      *
      * @return array{0: string, 1: string}|null
      */
@@ -274,6 +277,7 @@ final class EnvLoader
 
     /**
      * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      */
     private static function parseValue(
         #[\SensitiveParameter]
@@ -308,6 +312,7 @@ final class EnvLoader
      * values fail as "unterminated".
      *
      * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      */
     private static function parseDoubleQuoted(
         #[\SensitiveParameter]
@@ -349,6 +354,7 @@ final class EnvLoader
      * No escape processing, no single quotes inside.
      *
      * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      */
     private static function parseSingleQuoted(
         #[\SensitiveParameter]
@@ -372,7 +378,7 @@ final class EnvLoader
     /**
      * After the closing quote only whitespace and a comment are allowed.
      *
-     * @throws Exception\UnterminatedQuoteException
+     * @throws Exception\TrailingCharactersException
      */
     private static function ensureOnlyCommentFollows(
         #[\SensitiveParameter]
@@ -392,7 +398,7 @@ final class EnvLoader
         }
 
         if ($rest !== '' && $rest[0] !== '#') {
-            throw new Exception\UnterminatedQuoteException(
+            throw new Exception\TrailingCharactersException(
                 "Unexpected characters after closing $quote quote for key \"$key\" in $location"
             );
         }
