@@ -69,6 +69,16 @@ With `overwrite: true` the file wins: its values replace what `$_ENV` holds, wha
 
 A required key may come from the file, from `$_ENV` or from the process environment; an empty value counts. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
 
+`load()` returns the values of the file, as `parse()` does — also those the environment has overruled:
+
+```php
+$file = EnvLoader::load('.env');
+
+if ($_ENV['APP_DEBUG'] !== $file['APP_DEBUG']) {
+    // The environment overrules the file
+}
+```
+
 ### Parse Without Loading
 
 ```php
