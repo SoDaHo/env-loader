@@ -8,6 +8,9 @@ final class EnvLoader
 {
     private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
 
+    // Bytes asked for with one read
+    private const CHUNK_SIZE = 8192;
+
     /**
      * Load a .env file into $_ENV and return the values of the file.
      *
@@ -130,22 +133,12 @@ final class EnvLoader
         // @codeCoverageIgnoreEnd
 
         $result = [];
-        $lineNumber = 0;
         $bomPossible = true;
 
         try {
-            // Read line by line: empty lines count for the line number, but cost no memory
-            while (($line = @fgets($handle)) !== false) {
-                $lineNumber++;
+            $lines = self::lines($handle);
 
-                // Remove the line ending: LF, CRLF, or a CR that PHP was configured to detect
-                if (str_ends_with($line, "\n")) {
-                    $line = substr($line, 0, -1);
-                }
-                if (str_ends_with($line, "\r")) {
-                    $line = substr($line, 0, -1);
-                }
-
+            foreach ($lines as $lineNumber => $line) {
                 // Strip UTF-8 BOM from the first non-empty line (common in Windows-created files)
                 if ($bomPossible && $line !== '') {
                     $line = ltrim($line, "\xEF\xBB\xBF");
@@ -160,9 +153,9 @@ final class EnvLoader
                 }
             }
 
-            // fgets() also returns false when reading fails. Where the stream reports that instead of
-            // the end of the file, a partly read file must not pass as complete.
-            if (!feof($handle)) {
+            // Reading also stops when it fails. lines() tells whether it reached the end of the file:
+            // a partly read file must not pass as complete
+            if (!$lines->getReturn()) {
                 throw new Exception\FileNotReadableException("Could not read file: $path");
             }
         } finally {
@@ -170,6 +163,73 @@ final class EnvLoader
         }
 
         return $result;
+    }
+
+    /**
+     * The lines of a file, numbered from 1. LF, CRLF and a single CR each end a line.
+     *
+     * Reads in chunks with fread(), which tells a failed read (false) from one that brought no data ('');
+     * fgets() does not. feof() then tells a stream that has stopped from the end of the file. What was read is
+     * cut at its line endings without building an array of lines, so empty lines count for the line number,
+     * but cost no memory.
+     *
+     * The generator ends early if a read fails or brings no data before the end of the file: a line is
+     * never delivered cut off, and never joined across such a read. (An error handler of the application
+     * that throws for the suppressed message of a failed read is the first to speak, as in 1.x.)
+     *
+     * @param resource $handle
+     *
+     * @return \Generator<int, string, mixed, bool> The lines; its return value tells whether the end of the
+     *                                              file was reached. That is decided here, once, at the moment
+     *                                              reading stops: asking the stream again later may give another answer
+     */
+    private static function lines($handle): \Generator
+    {
+        $lineNumber = 0;
+
+        // The beginning of a line whose end has not been read yet; it holds no line ending
+        $carry = '';
+        $afterCr = false;
+
+        while (true) {
+            $chunk = @fread($handle, self::CHUNK_SIZE);
+
+            if ($chunk === false) {
+                return false;
+            }
+            if ($chunk === '') {
+                break;
+            }
+
+            // A LF after the CR that ended the last chunk belongs to that CR
+            $start = $afterCr && $chunk[0] === "\n" ? 1 : 0;
+            $length = strlen($chunk);
+            $afterCr = $chunk[$length - 1] === "\r";
+
+            while (($end = $start + strcspn($chunk, "\r\n", $start)) < $length) {
+                // The line is completed in place and handed over, not copied: a long line is not held twice
+                $carry .= substr($chunk, $start, $end - $start);
+                $line = $carry;
+                $carry = '';
+                $start = $end + (substr($chunk, $end, 2) === "\r\n" ? 2 : 1);
+
+                yield ++$lineNumber => $line;
+            }
+
+            $carry .= substr($chunk, $start);
+        }
+
+        // No data: the file has ended, or the stream has stopped delivering (a timeout, say)
+        if (!feof($handle)) {
+            return false;
+        }
+
+        // The last line needs no line ending
+        if ($carry !== '') {
+            yield ++$lineNumber => $carry;
+        }
+
+        return true;
     }
 
 

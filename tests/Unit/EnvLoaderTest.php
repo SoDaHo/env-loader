@@ -450,6 +450,221 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function partOfALineProvider(): array
+    {
+        return [
+            'cut in the key' => ["TEST_A=1\nTEST_B"],
+            'cut in the key after a CR' => ["TEST_A=1\rTEST_B"],
+            'cut in a quoted value' => ["TEST_A=1\nTEST_B=\"hunter2"],
+            'cut in an unquoted value' => ["TEST_A=1\nTEST_B=hunter2"],
+            'cut in the first line' => ['TEST'],
+        ];
+    }
+
+    #[DataProvider('partOfALineProvider')]
+    public function testReadFailureInTheMiddleOfALineThrowsForTheFileNotForTheLine(string $part): void
+    {
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $path = $scheme . '://fails/' . rawurlencode($part);
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected FileNotReadableException');
+        } catch (FileNotReadableException $e) {
+            // The part that was read is no line: it must not be reported as malformed
+            $this->assertSame("Could not read file: $path", $e->getMessage());
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
+    /**
+     * @return array<string, array{list<string>, array<string, string>|null}>
+     */
+    public static function readWithoutDataProvider(): array
+    {
+        return [
+            'in the key' => [['TEST_', '', "KEY=value\n"], null],
+            'in the value' => [['TEST_KEY=val', '', 'ue'], null],
+            'between two lines' => [["TEST_A=1\n", '', "TEST_KEY=value\n"], null],
+            'before a block with several lines' => [['TEST_WITH_A_LONG_NAME=', '', "1\rTEST_B=2\rTEST_C=3\n"], null],
+            'at the very beginning' => [['', "TEST_KEY=value\n"], null],
+            'twice in one line' => [['TEST', '', '', "_KEY=value\n"], null],
+            'between CR and LF' => [["TEST_A=1\r", '', "\nTEST_KEY=value"], null],
+            // Here the file ended with the read that brought no data
+            'after the last line' => [['TEST_KEY=value', ''], ['TEST_KEY' => 'value']],
+        ];
+    }
+
+    /**
+     * @param list<string> $pieces
+     * @param array<string, string>|null $expected The values, or null where the file counts as not readable
+     */
+    #[DataProvider('readWithoutDataProvider')]
+    public function testReadWithoutDataNeverLeadsToWrongValues(array $pieces, ?array $expected): void
+    {
+        // A read that brings no data although the file has not ended (a timeout, say) is not retried. The result
+        // is the content of the file or an exception - never a part of it, never a key joined from two reads
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $path = $scheme . '://ends/' . implode('/', array_map(rawurlencode(...), $pieces));
+
+        try {
+            $result = EnvLoader::parse($path);
+        } catch (FileNotReadableException $e) {
+            $this->assertSame("Could not read file: $path", $e->getMessage());
+            $result = null;
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+
+        $this->assertSame($expected, $result);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function failedReadProvider(): array
+    {
+        return [
+            'after a whole line' => ["TEST_A=1\n"],
+            'in the middle of a line' => ["TEST_A=1\nTEST_B="],
+            'before the first byte' => [''],
+        ];
+    }
+
+    #[DataProvider('failedReadProvider')]
+    public function testFailedReadThatLooksLikeTheEndOfTheFileThrows(string $delivered): void
+    {
+        // After a failed read PHP reports the end of the file, and so does this stream: the lines read
+        // so far must not pass as the whole file
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $path = $scheme . '://breaks/' . rawurlencode($delivered);
+
+        try {
+            $result = EnvLoader::parse($path);
+        } catch (FileNotReadableException $e) {
+            $result = $e->getMessage();
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+
+        $this->assertSame("Could not read file: $path", $result);
+    }
+
+    public function testFailedReadOfARealFileThrows(): void
+    {
+        // On Linux this file can be opened, but reading it at offset 0 fails with an I/O error
+        $path = '/proc/self/mem';
+        if (!@is_file($path) || !is_readable($path)) {
+            $this->markTestSkipped("No $path to read here");
+        }
+
+        $this->expectException(FileNotReadableException::class);
+        $this->expectExceptionMessage("Could not read file: $path");
+        EnvLoader::parse($path);
+    }
+
+    public function testLineEndingSplitBetweenTwoReadsCountsOnce(): void
+    {
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+
+        $path = $scheme . '://ends/' . rawurlencode("TEST_A=1\r") . '/' . rawurlencode("\nTEST-KEY=1\n");
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidKeyException');
+        } catch (InvalidKeyException $e) {
+            $this->assertSame("Invalid key in $path on line 2", $e->getMessage());
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
+    public function testEndOfFileIsDecidedWhereReadingStops(): void
+    {
+        // The last read brought no data and the stream did not report its end, so the file counts as not
+        // read to its end. Asked again a moment later, the stream reports its end: that must not make the
+        // lines read before pass as the whole file
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $path = $scheme . '://closes/' . rawurlencode("TEST_A=1\nTEST_B=2") . '/';
+
+        try {
+            $result = EnvLoader::parse($path);
+        } catch (FileNotReadableException $e) {
+            $result = $e->getMessage();
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+
+        $this->assertSame("Could not read file: $path", $result);
+    }
+
+    /**
+     * @return array<string, array{string, array<string, string>, int}> Content, values, number of the line after it
+     */
+    public static function chunkBoundaryProvider(): array
+    {
+        // The file is read in chunks of 8192 bytes; the first line ends where a chunk does
+        $comment = static fn (int $length): string => str_repeat('#', $length);
+        $long = str_repeat('x', 20_000);
+
+        return [
+            'LF is the last byte of the chunk' => [$comment(8191) . "\nTEST_A=1\n", ['TEST_A' => '1'], 3],
+            'LF is the first byte of the next chunk' => [$comment(8192) . "\nTEST_A=1\n", ['TEST_A' => '1'], 3],
+            'CRLF split between two chunks' => [$comment(8191) . "\r\nTEST_A=1\r\n", ['TEST_A' => '1'], 3],
+            'CR ends the chunk, no LF follows' => [$comment(8191) . "\rTEST_A=1\r", ['TEST_A' => '1'], 3],
+            'CR ends the chunk and the file' => ['TEST_A=' . str_repeat('x', 8184) . "\r", ['TEST_A' => str_repeat('x', 8184)], 2],
+            'CR ends the chunk, another CR follows' => [$comment(8191) . "\r\rTEST_A=1", ['TEST_A' => '1'], 4],
+            'file is exactly one chunk' => ['TEST_A=' . str_repeat('x', 8185), ['TEST_A' => str_repeat('x', 8185)], 2],
+            'line longer than two chunks' => ["TEST_A=$long\nTEST_B=\"$long\"\n", ['TEST_A' => $long, 'TEST_B' => $long], 3],
+            'key split between two chunks' => [$comment(8188) . "\nTEST_A=1", ['TEST_A' => '1'], 3],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $expected
+     */
+    #[DataProvider('chunkBoundaryProvider')]
+    public function testLinesAreTheSameWhereverAChunkEnds(string $content, array $expected, int $nextLine): void
+    {
+        $this->assertSame($expected, EnvLoader::parse($this->createEnvFile($content)));
+
+        // The line after the content (one line further where the content has no final line ending)
+        // has the number an editor would show
+        $path = $this->createEnvFile($content . (preg_match('/[\r\n]$/', $content) === 1 ? '' : "\n") . 'TEST-KEY=1');
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidKeyException');
+        } catch (InvalidKeyException $e) {
+            $this->assertSame("Invalid key in $path on line $nextLine", $e->getMessage());
+        }
+    }
+
+    public function testStreamThatDeliversInPiecesIsRead(): void
+    {
+        // Pieces of any size are fine, as long as every read brings data until the file ends
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $pieces = ['TEST_', "A=1\r", "\nTEST", "_B=2\nTEST_C=", '3'];
+
+        try {
+            $values = EnvLoader::parse($scheme . '://ends/' . implode('/', array_map(rawurlencode(...), $pieces)));
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+
+        $this->assertSame(['TEST_A' => '1', 'TEST_B' => '2', 'TEST_C' => '3'], $values);
+    }
+
     public function testOpenBasedirRestrictionThrowsWithoutWarning(): void
     {
         $path = $this->createEnvFile('TEST_KEY=value');
@@ -515,12 +730,32 @@ class EnvLoaderTest extends TestCase
         $this->assertSame(['preg_replace'], $matches[0]);
     }
 
-    public function testEmptyLinesCostNoMemory(): void
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function lineEndingProvider(): array
     {
-        $path = $this->createEnvFile(str_repeat("\n", 400_000) . 'TEST_KEY=value');
+        return ['LF' => ["\n"], 'CRLF' => ["\r\n"], 'CR' => ["\r"]];
+    }
 
-        // An array of all lines would need more than the 16 MB the child process gets
-        $output = $this->parseInChildProcess($path, ['-d', 'memory_limit=16M']);
+    #[DataProvider('lineEndingProvider')]
+    public function testEmptyLinesCostNoMemory(string $lineEnding): void
+    {
+        $path = $this->createEnvFile(str_repeat($lineEnding, 400_000) . 'TEST_KEY=value');
+
+        // An array of all lines would need more than the 8 MB the child process gets
+        $output = $this->parseInChildProcess($path, ['-d', 'memory_limit=8M']);
+
+        $this->assertSame('{"TEST_KEY":"value"}', $output);
+    }
+
+    #[DataProvider('lineEndingProvider')]
+    public function testFileLargerThanTheMemoryLimitIsRead(string $lineEnding): void
+    {
+        // 12 MB of comment lines: read in chunks, none of it stays in memory
+        $path = $this->createEnvFile(str_repeat(str_repeat('#', 119) . $lineEnding, 100_000) . 'TEST_KEY=value');
+
+        $output = $this->parseInChildProcess($path, ['-d', 'memory_limit=8M']);
 
         $this->assertSame('{"TEST_KEY":"value"}', $output);
     }
@@ -643,7 +878,7 @@ class EnvLoaderTest extends TestCase
             'whitespace-only line' => ["TEST_A=1\n \t \nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
             'comment directly after double quote' => ['TEST_A="v"#c', ['TEST_A' => 'v']],
             'comment after single quote' => ["TEST_A='v' # c", ['TEST_A' => 'v']],
-            'any whitespace between quote and comment' => ["TEST_A=\"v\" \t\r\v\f# c", ['TEST_A' => 'v']],
+            'any whitespace between quote and comment' => ["TEST_A=\"v\" \t\v\f# c", ['TEST_A' => 'v']],
             'whitespace after quote without comment' => ["TEST_A='v' \t\v\f\nTEST_B=1", ['TEST_A' => 'v', 'TEST_B' => '1']],
             'comment directly after single quote' => ["TEST_A='v'#c", ['TEST_A' => 'v']],
             'double quotes in comment after double-quoted value' => ['TEST_A="a" # "b"', ['TEST_A' => 'a']],
@@ -666,7 +901,18 @@ class EnvLoaderTest extends TestCase
                 ['TEST_A' => '1', 'TEST_B' => 'x y', 'TEST_C' => 'z'],
             ],
             'BOM with CRLF' => ["\xEF\xBB\xBFTEST_A=1\r\nTEST_B=2\r\n", ['TEST_A' => '1', 'TEST_B' => '2']],
-            'BOM after empty lines' => ["\n\r\n\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'BOM after empty lines' => ["\n\r\n\r\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'CR line endings' => [
+                "TEST_A=1\rTEST_B=\"x y\"\r\rTEST_C='z'\r",
+                ['TEST_A' => '1', 'TEST_B' => 'x y', 'TEST_C' => 'z'],
+            ],
+            'CR without final line ending' => ["TEST_A=1\rTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'mixed line endings' => [
+                "TEST_A=1\rTEST_B=2\nTEST_C=3\r\nTEST_D=4\r\r\nTEST_E=5",
+                ['TEST_A' => '1', 'TEST_B' => '2', 'TEST_C' => '3', 'TEST_D' => '4', 'TEST_E' => '5'],
+            ],
+            'BOM with CR' => ["\xEF\xBB\xBFTEST_A=1\rTEST_B=2\r", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'comment line ended by CR' => ["# TEST_OFF=1\rTEST_A=1", ['TEST_A' => '1']],
             'export followed by tab' => ["export\tTEST_A=1", ['TEST_A' => '1']],
             'export followed by several spaces' => ['export   TEST_A=1', ['TEST_A' => '1']],
             'key named export' => ['export=1', ['export' => '1']],
@@ -746,6 +992,8 @@ class EnvLoaderTest extends TestCase
             'backslash as last character' => ['TEST_KEY="hunter2\\', 'Unterminated double quote'],
             'escaped closing quote' => ['TEST_KEY="hunter2\\"', 'Unterminated double quote'],
             'multiline value' => ["TEST_KEY=\"hunter2\ntail\"", 'Unterminated double quote'],
+            'CR inside double quotes' => ["TEST_KEY=\"hunter2\rtail\"", 'Unterminated double quote'],
+            'CR inside single quotes' => ["TEST_KEY='hunter2\rtail'", 'Unterminated single quote'],
             'text after double quote' => ['TEST_KEY="hunter2" tail', 'Unexpected characters after closing double quote'],
             'text directly after double quote' => ['TEST_KEY="hunter2"tail', 'Unexpected characters after closing double quote'],
             'text after single quote' => ["TEST_KEY='hunter2' tail", 'Unexpected characters after closing single quote'],
@@ -831,6 +1079,7 @@ class EnvLoaderTest extends TestCase
             'export alone' => ['export'],
             'quoted text' => ['"hunter2"'],
             'colon instead of equals' => ['TEST_KEY: hunter2'],
+            'second half of a line broken by CR' => ["TEST_KEY=1\rhunter2"],
         ];
     }
 
@@ -865,6 +1114,56 @@ class EnvLoaderTest extends TestCase
             $this->fail('Expected InvalidLineException');
         } catch (InvalidLineException) {
             $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
+    }
+
+    /**
+     * @return array<string, array{string, int}>
+     */
+    public static function lineNumberProvider(): array
+    {
+        return [
+            'LF' => ["TEST_A=1\n\n# c\n", 4],
+            'CRLF' => ["TEST_A=1\r\n\r\n# c\r\n", 4],
+            'CR' => ["TEST_A=1\r\r# c\r", 4],
+            'CR followed by CRLF are two line endings' => ["TEST_A=1\r\r\n", 3],
+            'LF followed by CR are two line endings' => ["TEST_A=1\n\r", 3],
+            'mixed' => ["TEST_A=1\r# c\n\r\nTEST_B=2\r", 5],
+        ];
+    }
+
+    #[DataProvider('lineNumberProvider')]
+    public function testEveryLineEndingCountsOnce(string $before, int $lineNumber): void
+    {
+        $path = $this->createEnvFile($before . 'TEST-KEY=value');
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidKeyException');
+        } catch (InvalidKeyException $e) {
+            $this->assertSame("Invalid key in $path on line $lineNumber", $e->getMessage());
+        }
+    }
+
+    public function testLineEndingsDoNotDependOnAutoDetectLineEndings(): void
+    {
+        // With the deprecated setting, PHP ends the blocks of a file whose first line ending is a CR at each CR:
+        // a LF is then no line ending for fgets()
+        $before = @ini_set('auto_detect_line_endings', '1');
+        if ($before === false) {
+            $this->markTestSkipped('This PHP has no auto_detect_line_endings');
+        }
+
+        try {
+            $values = EnvLoader::parse($this->createEnvFile("TEST_A=1\rTEST_B=2\nTEST_C=3\r\nTEST_D=4\r\r\nTEST_E=5\r\n"));
+            $this->assertSame(['TEST_A' => '1', 'TEST_B' => '2', 'TEST_C' => '3', 'TEST_D' => '4', 'TEST_E' => '5'], $values);
+
+            $path = $this->createEnvFile("TEST_A=1\rTEST_B=2\n# c\r\nTEST_D=4\r\r\nTEST-KEY=5\r");
+            $this->expectException(InvalidKeyException::class);
+            $this->expectExceptionMessage("Invalid key in $path on line 6");
+            EnvLoader::parse($path);
+        } finally {
+            @ini_set('auto_detect_line_endings', $before);
         }
     }
 
