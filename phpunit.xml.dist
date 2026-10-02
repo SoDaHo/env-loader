@@ -8,7 +8,10 @@
          failOnNotice="true"
          failOnWarning="true"
          failOnRisky="true"
-         displayDetailsOnSkippedTests="true">
+         failOnPhpunitDeprecation="true"
+         displayDetailsOnSkippedTests="true"
+         displayDetailsOnTestsThatTriggerDeprecations="true"
+         displayDetailsOnPhpunitDeprecations="true">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>

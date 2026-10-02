@@ -217,7 +217,7 @@ $host = getenv('DB_HOST');
 
 ## Requirements
 
-- PHP ^8.2
+- PHP ^8.5
 
 ## Acknowledgments
 

@@ -830,7 +830,7 @@ class EnvLoaderTest extends TestCase
     public function testLoadReturnsNothing(): void
     {
         // A return value would break subclasses that override load(): void
-        $returnType = (new \ReflectionMethod(EnvLoader::class, 'load'))->getReturnType();
+        $returnType = new \ReflectionMethod(EnvLoader::class, 'load')->getReturnType();
 
         $this->assertSame('void', (string) $returnType);
     }
