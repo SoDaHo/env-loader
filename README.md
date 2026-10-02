@@ -7,11 +7,11 @@ Lightweight .env file loader for PHP. Zero dependencies.
 There are established .env loaders for PHP, most notably [vlucas/phpdotenv](https://github.com/vlucas/phpdotenv). This library exists because we needed something simpler:
 
 - **Zero dependencies** — Nothing to install besides this package.
-- **Thread-safe by design** — Only writes to `$_ENV`. No `putenv()`/`getenv()`, which are not thread-safe in async runtimes (Swoole, RoadRunner, FrankenPHP).
+- **Thread-safe by design** — Only writes to `$_ENV`. No `putenv()`, which is not thread-safe in async runtimes (Swoole, RoadRunner, FrankenPHP).
 - **No magic** — No variable expansion (`${VAR}`), no multiline values, no interpreted escape sequences (`\n`, `\t`). What you write is what you get.
 - **Minimal footprint** — Easy to audit, easy to understand.
 
-If you need variable expansion, multiline values, or `getenv()` support, use phpdotenv instead.
+If you need variable expansion, multiline values, or loaded values that `getenv()` returns, use phpdotenv instead.
 
 ## Installation
 
@@ -26,7 +26,7 @@ composer require sodaho/env-loader
 ```php
 use Sodaho\EnvLoader\EnvLoader;
 
-// Loads .env into $_ENV (does not overwrite existing, no required keys)
+// Loads .env into $_ENV (the environment wins over the file, no required keys)
 EnvLoader::load(__DIR__ . '/.env');
 
 echo $_ENV['DB_HOST'];
@@ -35,7 +35,7 @@ echo $_ENV['DB_HOST'];
 ### Options
 
 ```php
-// Overwrite existing $_ENV variables
+// Let the file win over the environment
 EnvLoader::load('.env', overwrite: true);
 
 // Require specific keys (throws exception if missing)
@@ -48,25 +48,26 @@ EnvLoader::load('.env', required: 'DB_HOST,DB_NAME');
 EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
 ```
 
-A required key may come from the file or from an existing `$_ENV` entry; an empty value counts. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
+Without `overwrite`, the environment wins over the file. For every key of the file, `load()` uses the first value it finds:
 
-`overwrite: false` and `required` do not see the process environment, only `$_ENV`. Whether real environment variables appear there depends on `variables_order` in php.ini: with `GPCS` (php.ini-production and php.ini-development) `$_ENV` starts empty, so a value from the file is used even if the process environment defines the key. To let the process environment win, copy the keys of the file and the required keys first:
+1. the entry in `$_ENV`,
+2. the variable of the process environment (`getenv($key, true)`),
+3. the value of the file.
 
-```php
-$required = ['DB_HOST', 'DB_NAME'];
+A value from the process environment is copied into `$_ENV`, so the application reads everything from there, whatever `variables_order` in php.ini says. A variable that is set but empty counts as set. Only keys named in the file or in `required` are copied; the rest of the process environment stays out of `$_ENV`.
 
-foreach ([...array_keys(EnvLoader::parse('.env')), ...$required] as $key) {
-    $value = getenv($key, true);
+The process environment is the environment of the PHP process itself: what Docker, systemd, the shell or `env[NAME]` in a PHP-FPM pool set. That includes what the system sets on its own (`PATH`, `HOME`, `USER`, `HOSTNAME`, in the official Docker image also `PHP_VERSION` and other `PHP_*`): a key of that name in the file loses against it.
 
-    if ($value !== false && !array_key_exists($key, $_ENV)) {
-        $_ENV[$key] = $value;
-    }
-}
+What the web server passes with a request is not part of it. Under FastCGI (PHP-FPM) the request arrives as parameters (every header as `HTTP_*`, and request variables such as `CONTENT_TYPE`, `QUERY_STRING` and `REQUEST_URI`), and `load()` does not read them, so a request cannot overrule the file. What to know about the edges:
 
-EnvLoader::load('.env', required: $required);
-```
+- **Plain CGI:** there the request is the environment of the process. `load()` recognizes it by `GATEWAY_INTERFACE`, which CGI/1.1 requires every gateway to set, and does not read the process environment; only `$_ENV` and the file count, as in 1.x. A gateway that omits the variable is not recognized.
+- **PHP-FPM** clears the environment of its workers (`USER` and `HOME` remain) unless the pool says `clear_env = no` (the official Docker image does) or lists the variables with `env[NAME]`.
+- **`variables_order` with `E`** makes PHP fill `$_ENV` itself, under PHP-FPM and CGI with the parameters of the request. `$_ENV` wins over the file, so there a request can set a key named like a header (`HTTP_…`) or a request variable. `E` is the default when no php.ini is loaded, as in the official Docker image; use `GPCS` (php.ini-production and php.ini-development), or keep such names out of the file.
+- **`getenv()` disabled** (`disable_functions`): the process environment is not read.
 
-What the loop has copied stays in `$_ENV` if `load()` throws afterwards. Do not copy all of `getenv()` into `$_ENV`: under FastCGI (PHP-FPM) it also returns what the web server passes with the request, with every request header as `HTTP_*`, and `$_ENV` wins over the file. `getenv($key, true)` asks only the PHP process. For the same reason keep `E` out of `variables_order` under PHP-FPM (it is the default when no php.ini is loaded): with it, PHP fills `$_ENV` with the request itself. Under plain CGI the request is the environment of the process; do not copy anything there.
+With `overwrite: true` the file wins: its values replace what `$_ENV` holds, whatever the process environment says.
+
+A required key may come from the file, from `$_ENV` or from the process environment; an empty value counts. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
 
 ### Parse Without Loading
 
@@ -156,7 +157,7 @@ try {
 | `FileNotReadableException` | File exists but cannot be read |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
 | `UnterminatedQuoteException` | Quoted value missing closing quote, or text other than a comment after it |
-| `MissingRequiredKeyException` | Required key missing in file and `$_ENV` |
+| `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment |
 | `InvalidValueException` | `format()`: value is not a string, or contains a line break or NUL byte |
 
 Messages for errors in the file name the file, the line and, for quote errors, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well.
@@ -182,7 +183,7 @@ This library intentionally writes **only to `$_ENV`**, not `putenv()` or `$_SERV
 
 **Reason: Thread Safety**
 
-`putenv()` and `getenv()` are **not thread-safe**. In modern PHP runtimes like:
+`putenv()` is **not thread-safe**. In modern PHP runtimes like:
 
 - Swoole
 - RoadRunner
@@ -192,6 +193,8 @@ This library intentionally writes **only to `$_ENV`**, not `putenv()` or `$_SERV
 ...concurrent requests can overwrite each other's environment variables, causing hard-to-debug race conditions.
 
 `$_ENV` is process-local and safe. Use `$_ENV['KEY']` instead of `getenv('KEY')` in your application.
+
+`load()` reads the process environment (`getenv($key, true)`) to let its variables win over the file. It never changes it.
 
 ```php
 // Safe

@@ -6,9 +6,13 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 
 ### Changed
 - PHP `^8.5` is required (1.x: `^8.2`). CI also runs the tests on the pre-release of PHP 8.6.
+- Without `overwrite`, the process environment wins over the file: a key that is not in `$_ENV` but set in the environment of the PHP process (`getenv($key, true)`) takes that value instead of the one from the file. The value is copied into `$_ENV`. What the web server passes with a request (FastCGI parameters, request headers) is not read; under plain CGI, where the request is the process environment, and where `getenv()` is disabled, the process environment is not read at all.
+- `required` accepts a key that only the process environment defines, and copies it into `$_ENV`.
 
 ### Upgrading from 1.x
 - **PHP version:** `"sodaho/env-loader": "^1.1"` runs on PHP `^8.2`, `"^2.0"` needs PHP `^8.5`. Stay on `^1.1` until the application runs on PHP 8.5.
+- **Environment before file:** code that copied the process environment into `$_ENV` before `EnvLoader::load('.env');` (1.x) becomes `EnvLoader::load('.env');` alone. The other way round: where a variable of the process environment is not in `$_ENV` (php.ini `variables_order` without `E`), 1.x used the value of the file and 2.0 uses the variable. `$_ENV += EnvLoader::parse('.env');` behaves like the 1.x `load()` without `required`; `overwrite: true` lets the file win over `$_ENV` as well. Two consequences: a key of the file named like a variable the system sets (`PATH`, `HOME`, `USER`, `HOSTNAME`) takes the value of the system now, and variables that are not keys of the file do not reach `$_ENV` through `load()` — name them in `required` (then they are copied) or read them with `getenv($key, true)`.
+- **Required keys:** `EnvLoader::load('.env', required: ['TOKEN']);` threw `MissingRequiredKeyException` when only the process environment had `TOKEN` (1.x); it passes now and copies `TOKEN` into `$_ENV`.
 
 ## [1.1.0] - 2026-10-02
 
