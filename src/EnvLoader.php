@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Sodaho\EnvLoader;
 
-class EnvLoader
+final class EnvLoader
 {
     private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
 

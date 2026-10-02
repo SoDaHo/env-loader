@@ -897,6 +897,11 @@ class EnvLoaderTest extends TestCase
         $this->assertSame([], EnvLoader::load($this->createEnvFile('')));
     }
 
+    public function testClassIsFinal(): void
+    {
+        $this->assertTrue(new \ReflectionClass(EnvLoader::class)->isFinal());
+    }
+
     // ============================================
     // load(): Environment wins over the file
     // ============================================
