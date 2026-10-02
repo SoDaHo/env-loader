@@ -864,12 +864,37 @@ class EnvLoaderTest extends TestCase
         $this->assertSame($server, $_SERVER);
     }
 
-    public function testLoadReturnsNothing(): void
+    public function testLoadReturnsTheValuesOfTheFile(): void
     {
-        // A return value would break subclasses that override load(): void
-        $returnType = new \ReflectionMethod(EnvLoader::class, 'load')->getReturnType();
+        $path = $this->createEnvFile("TEST_FIRST=one\nTEST_SECOND=\"two\"");
 
-        $this->assertSame('void', (string) $returnType);
+        $this->assertSame(['TEST_FIRST' => 'one', 'TEST_SECOND' => 'two'], EnvLoader::load($path));
+    }
+
+    public function testLoadReturnsTheValuesOfTheFileAlsoWhereTheEnvironmentWins(): void
+    {
+        $_ENV['TEST_IN_ENV'] = 'env';
+        $this->setProcessVariable('TEST_IN_PROCESS', 'process');
+        $this->setProcessVariable('TEST_REQUIRED_ONLY', 'process');
+        $path = $this->createEnvFile("TEST_IN_ENV=file\nTEST_IN_PROCESS=\nTEST_FILE_ONLY=file");
+
+        $values = EnvLoader::load($path, required: ['TEST_REQUIRED_ONLY']);
+
+        $this->assertSame(['TEST_IN_ENV' => 'file', 'TEST_IN_PROCESS' => '', 'TEST_FILE_ONLY' => 'file'], $values);
+        $this->assertSame($values, EnvLoader::parse($path));
+    }
+
+    public function testLoadReturnsTheValuesOfTheFileWithOverwrite(): void
+    {
+        $_ENV['TEST_IN_ENV'] = 'env';
+        $path = $this->createEnvFile('TEST_IN_ENV=file');
+
+        $this->assertSame(['TEST_IN_ENV' => 'file'], EnvLoader::load($path, overwrite: true));
+    }
+
+    public function testLoadOfEmptyFileReturnsEmptyArray(): void
+    {
+        $this->assertSame([], EnvLoader::load($this->createEnvFile('')));
     }
 
     // ============================================

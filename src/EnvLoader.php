@@ -9,7 +9,7 @@ class EnvLoader
     private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
 
     /**
-     * Load a .env file into $_ENV.
+     * Load a .env file into $_ENV and return the values of the file.
      *
      * Without overwrite, the environment wins over the file: a key keeps the value it has in $_ENV,
      * otherwise it takes the value of the process environment, otherwise the one of the file.
@@ -21,12 +21,14 @@ class EnvLoader
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\MissingRequiredKeyException
+     *
+     * @return array<string, string> The values of the file, whether or not they were written to $_ENV
      */
     public static function load(
         string $path,
         bool $overwrite = false,
         array|string $required = []
-    ): void {
+    ): array {
         $values = self::parse($path);
 
         // Handle required keys - normalize to array
@@ -60,6 +62,8 @@ class EnvLoader
 
         // A required key that only the process environment defines is copied: what is required can be read from $_ENV
         $_ENV += $requiredFromProcess;
+
+        return $values;
     }
 
     /**
