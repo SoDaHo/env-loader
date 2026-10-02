@@ -461,6 +461,74 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    public function testStreamWrapperThatAnswersTheReadAfterItsEndWithFalseIsRead(): void
+    {
+        // Only a file on disk is asked again after its end: a stream wrapper may answer that with false,
+        // and its data was read as a whole up to 1.1.0
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+
+        try {
+            $this->assertSame(['TEST_KEY' => 'value'], EnvLoader::parse($scheme . '://ends'));
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
+    public function testEndOfFileIsAskedForBeforeAnythingElse(): void
+    {
+        // After the failed read this stream does not report its end, only when asked a second time.
+        // Up to 1.1.0 feof() was the first to ask, and threw; nothing may ask before it
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+
+        try {
+            $result = EnvLoader::parse($scheme . '://closes');
+        } catch (FileNotReadableException $e) {
+            $result = $e->getMessage();
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+
+        $this->assertSame("Could not read file: $scheme://closes", $result);
+    }
+
+    public function testReadThatBringsNoDataBeforeTheEndOfTheFileThrows(): void
+    {
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+
+        try {
+            $result = EnvLoader::parse($scheme . '://stalls');
+        } catch (FileNotReadableException $e) {
+            $result = $e->getMessage();
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+
+        $this->assertSame("Could not read file: $scheme://stalls", $result);
+    }
+
+    public function testReadFailureOfARealFileThrows(): void
+    {
+        // On Linux this file can be opened, but reading it at offset 0 fails with an I/O error
+        $path = '/proc/self/mem';
+        if (!@is_file($path) || !is_readable($path)) {
+            $this->markTestSkipped("No $path to read here");
+        }
+
+        // It is the read that fails, not the opening
+        $handle = fopen($path, 'rb');
+        $this->assertIsResource($handle);
+        $this->assertFalse(@fgets($handle));
+        $this->assertTrue(feof($handle));
+        fclose($handle);
+
+        $this->expectException(FileNotReadableException::class);
+        $this->expectExceptionMessage("Could not read file: $path");
+        EnvLoader::parse($path);
+    }
+
     public function testPcreWarningDoesNotReachTheErrorHandler(): void
     {
         $path = $this->createEnvFile('TEST_QUOTED="value" tail');

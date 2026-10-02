@@ -113,7 +113,14 @@ class EnvLoader
 
             // fgets() also returns false when reading fails. Where the stream reports that instead of
             // the end of the file, a partly read file must not pass as complete.
-            if (!feof($handle)) {
+            // After a failed read of a file on disk, PHP reports the end of the file as well. Another read
+            // confirms the failure if it persists: at the real end of a file it returns '', not false.
+            // Stream wrappers are not asked again: some of them answer a read after their end with false.
+            // feof() is asked first, as it always was: looking up the wrapper asks a stream for its end too.
+            if (
+                !feof($handle)
+                || (stream_get_meta_data($handle)['wrapper_type'] === 'plainfile' && @fread($handle, 1) === false)
+            ) {
                 throw new Exception\FileNotReadableException("Could not read file: $path");
             }
         } finally {
