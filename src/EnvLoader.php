@@ -125,6 +125,50 @@ class EnvLoader
 
 
     /**
+     * Format key-value pairs as .env content that parse() reads back unchanged.
+     *
+     * Every value is double-quoted. Writing the file is left to the caller.
+     *
+     * @param array<string> $values Key-value pairs
+     *
+     * @throws Exception\InvalidKeyException
+     * @throws Exception\InvalidValueException
+     */
+    public static function format(#[\SensitiveParameter] array $values): string
+    {
+        $content = '';
+        $position = 0;
+
+        foreach ($values as $key => $value) {
+            $position++;
+
+            // PHP turns numeric string keys into integers
+            $key = (string) $key;
+
+            // An invalid key is not named: it may be a misplaced value
+            if (!self::isValidKey($key)) {
+                throw new Exception\InvalidKeyException("Invalid key at position $position");
+            }
+
+            if (!is_string($value)) {
+                throw new Exception\InvalidValueException("Value for key \"$key\" is not a string");
+            }
+
+            // Line breaks cannot be represented; NUL is never valid in an environment value
+            if (strpbrk($value, "\r\n\0") !== false) {
+                throw new Exception\InvalidValueException(
+                    "Value for key \"$key\" contains a line break or NUL byte"
+                );
+            }
+
+            $content .= $key . '="' . strtr($value, ['\\' => '\\\\', '"' => '\\"']) . "\"\n";
+        }
+
+        return $content;
+    }
+
+
+    /**
      * @param string $location File and line for error messages - messages never contain file content
      *
      * @throws Exception\InvalidKeyException

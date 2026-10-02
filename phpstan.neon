@@ -3,3 +3,4 @@ parameters:
     paths:
         - src
     tmpDir: .phpstan.cache
+    treatPhpDocTypesAsCertain: false
