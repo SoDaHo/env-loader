@@ -25,6 +25,9 @@ class EnvLoaderTest extends TestCase
     /** @var array<mixed> */
     private array $envBackup;
 
+    /** @var array<string> */
+    private array $processVariables = [];
+
     protected function setUp(): void
     {
         $this->tempDir = sys_get_temp_dir() . '/env-loader-test-' . uniqid();
@@ -42,6 +45,10 @@ class EnvLoaderTest extends TestCase
         rmdir($this->tempDir);
 
         $_ENV = $this->envBackup;
+
+        foreach ($this->processVariables as $key) {
+            putenv($key);
+        }
     }
 
     private function createEnvFile(string $content): string
@@ -49,6 +56,18 @@ class EnvLoaderTest extends TestCase
         $path = $this->tempDir . '/.env';
         file_put_contents($path, $content);
         return $path;
+    }
+
+    /**
+     * Sets a variable in the process environment (not in $_ENV) until the end of the test.
+     */
+    private function setProcessVariable(string $key, string $value): void
+    {
+        $this->assertFalse(getenv($key), "$key is already set in the process environment");
+
+        $this->processVariables[] = $key;
+        putenv("$key=$value");
+        unset($_ENV[$key]);
     }
 
     /**
@@ -831,12 +850,368 @@ class EnvLoaderTest extends TestCase
         $this->assertSame($server, $_SERVER);
     }
 
+    public function testLoadWritesOnlyToEnvWhenTheProcessEnvironmentWins(): void
+    {
+        $this->setProcessVariable('TEST_ONLY_ENV', 'process');
+        $processEnvironment = getenv();
+        $server = $_SERVER;
+        $path = $this->createEnvFile("TEST_ONLY_ENV=file\nTEST_OTHER=value");
+
+        EnvLoader::load($path, required: ['TEST_ONLY_ENV']);
+
+        $this->assertSame('process', $_ENV['TEST_ONLY_ENV']);
+        $this->assertSame($processEnvironment, getenv());
+        $this->assertSame($server, $_SERVER);
+    }
+
     public function testLoadReturnsNothing(): void
     {
         // A return value would break subclasses that override load(): void
         $returnType = new \ReflectionMethod(EnvLoader::class, 'load')->getReturnType();
 
         $this->assertSame('void', (string) $returnType);
+    }
+
+    // ============================================
+    // load(): Environment wins over the file
+    // ============================================
+
+    public function testProcessEnvironmentWinsOverTheFile(): void
+    {
+        $this->setProcessVariable('TEST_PROCESS', 'process');
+        EnvLoader::load($this->createEnvFile('TEST_PROCESS=file'));
+
+        $this->assertSame('process', $_ENV['TEST_PROCESS']);
+    }
+
+    public function testEmptyProcessVariableWinsOverTheFile(): void
+    {
+        $this->setProcessVariable('TEST_PROCESS_EMPTY', '');
+        EnvLoader::load($this->createEnvFile('TEST_PROCESS_EMPTY=file'));
+
+        $this->assertSame('', $_ENV['TEST_PROCESS_EMPTY']);
+    }
+
+    public function testEnvWinsOverTheProcessEnvironment(): void
+    {
+        $this->setProcessVariable('TEST_BOTH', 'process');
+        $_ENV['TEST_BOTH'] = 'env';
+        EnvLoader::load($this->createEnvFile('TEST_BOTH=file'));
+
+        $this->assertSame('env', $_ENV['TEST_BOTH']);
+    }
+
+    public function testValueInEnvIsKeptAsItIs(): void
+    {
+        $this->setProcessVariable('TEST_NOT_A_STRING', 'process');
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+        $path = $this->createEnvFile('TEST_NOT_A_STRING=file');
+
+        foreach ([42, false, null] as $value) {
+            $_ENV = ['TEST_NOT_A_STRING' => $value, 'TEST_REQUIRED' => $value];
+            EnvLoader::load($path, required: ['TEST_REQUIRED']);
+
+            $this->assertSame(['TEST_NOT_A_STRING' => $value, 'TEST_REQUIRED' => $value], $_ENV);
+        }
+    }
+
+    public function testRequiredKeyInEnvCountsWhateverItsValue(): void
+    {
+        $path = $this->createEnvFile('TEST_FROM_FILE=value');
+
+        foreach ([42, false, null] as $value) {
+            $_ENV = ['TEST_REQUIRED' => $value];
+            EnvLoader::load($path, required: ['TEST_REQUIRED']);
+
+            $this->assertSame(['TEST_REQUIRED' => $value, 'TEST_FROM_FILE' => 'value'], $_ENV);
+        }
+    }
+
+    public function testServerSuperglobalIsNotRead(): void
+    {
+        $_SERVER['TEST_IN_SERVER'] = 'server';
+        $path = $this->createEnvFile('TEST_IN_SERVER=file');
+
+        try {
+            EnvLoader::load($path);
+            $this->assertSame('file', $_ENV['TEST_IN_SERVER']);
+
+            unset($_ENV['TEST_IN_SERVER']);
+            $this->expectException(MissingRequiredKeyException::class);
+            EnvLoader::load($this->createEnvFile('TEST_OTHER=value'), required: ['TEST_IN_SERVER']);
+        } finally {
+            unset($_SERVER['TEST_IN_SERVER']);
+        }
+    }
+
+    public function testFileIsUsedWhereTheEnvironmentHasNoValue(): void
+    {
+        $this->setProcessVariable('TEST_PROCESS', 'process');
+        EnvLoader::load($this->createEnvFile("TEST_PROCESS=file\nTEST_FILE_ONLY=file"));
+
+        $this->assertSame('file', $_ENV['TEST_FILE_ONLY']);
+    }
+
+    public function testOverwriteWinsOverTheProcessEnvironment(): void
+    {
+        $this->setProcessVariable('TEST_PROCESS', 'process');
+        EnvLoader::load($this->createEnvFile('TEST_PROCESS=file'), overwrite: true);
+
+        $this->assertSame('file', $_ENV['TEST_PROCESS']);
+        $this->assertSame('process', getenv('TEST_PROCESS'));
+    }
+
+    public function testOnlyKeysOfTheFileAreCopiedFromTheProcessEnvironment(): void
+    {
+        $this->setProcessVariable('TEST_UNRELATED', 'process');
+        $this->setProcessVariable('TEST_PROCESS', 'process');
+        $_ENV = [];
+        EnvLoader::load($this->createEnvFile('TEST_PROCESS=file'));
+
+        $this->assertSame(['TEST_PROCESS' => 'process'], $_ENV);
+    }
+
+    public function testRequiredKeyMayComeFromTheProcessEnvironment(): void
+    {
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+        $_ENV = [];
+        EnvLoader::load($this->createEnvFile('TEST_FROM_FILE=value'), required: ['TEST_REQUIRED', 'TEST_FROM_FILE']);
+
+        $this->assertSame(['TEST_FROM_FILE' => 'value', 'TEST_REQUIRED' => 'process'], $_ENV);
+    }
+
+    public function testNumericRequiredKeyFromTheProcessEnvironmentKeepsItsName(): void
+    {
+        // PHP turns the array key "123" into the integer 123; it must not be renumbered
+        $this->setProcessVariable('123', 'process');
+        $_ENV = ['first'];
+        EnvLoader::load($this->createEnvFile('TEST_FROM_FILE=value'), required: ['123']);
+
+        $this->assertSame([0 => 'first', 'TEST_FROM_FILE' => 'value', 123 => 'process'], $_ENV);
+    }
+
+    public function testRequiredKeyFromTheProcessEnvironmentMayBeEmpty(): void
+    {
+        $this->setProcessVariable('TEST_REQUIRED', '');
+        EnvLoader::load($this->createEnvFile('TEST_FROM_FILE=value'), required: 'TEST_REQUIRED');
+
+        $this->assertSame('', $_ENV['TEST_REQUIRED']);
+    }
+
+    public function testRequiredKeyFromTheProcessEnvironmentIsCopiedWithOverwrite(): void
+    {
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+        EnvLoader::load($this->createEnvFile('TEST_FROM_FILE=value'), overwrite: true, required: ['TEST_REQUIRED']);
+
+        $this->assertSame('process', $_ENV['TEST_REQUIRED']);
+    }
+
+    public function testRequiredKeyInEnvIsNotReplacedByTheProcessEnvironment(): void
+    {
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+        $_ENV['TEST_REQUIRED'] = 'env';
+        EnvLoader::load($this->createEnvFile('TEST_FROM_FILE=value'), required: ['TEST_REQUIRED']);
+
+        $this->assertSame('env', $_ENV['TEST_REQUIRED']);
+    }
+
+    public function testRequiredKeyOfTheFileIsNotReplacedByTheProcessEnvironmentWithOverwrite(): void
+    {
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+        EnvLoader::load($this->createEnvFile('TEST_REQUIRED=file'), overwrite: true, required: ['TEST_REQUIRED']);
+
+        $this->assertSame('file', $_ENV['TEST_REQUIRED']);
+    }
+
+    public function testMissingRequiredKeyLeavesEnvUntouchedAfterAKeyFromTheProcessEnvironment(): void
+    {
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+        $_ENV = ['TEST_EXISTING' => 'original'];
+        $path = $this->createEnvFile('TEST_OTHER=value');
+
+        try {
+            EnvLoader::load($path, required: ['TEST_REQUIRED', 'TEST_MISSING']);
+            $this->fail('Expected MissingRequiredKeyException');
+        } catch (MissingRequiredKeyException $e) {
+            $this->assertSame('Missing required key: TEST_MISSING', $e->getMessage());
+            $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
+    }
+
+    public function testRequestDoesNotWinOverTheFile(): void
+    {
+        $binary = PhpCgi::binary();
+        if ($binary === null) {
+            $this->markTestSkipped('No php-cgi next to ' . PHP_BINARY);
+        }
+
+        // Under FastCGI, getenv() returns request headers (HTTP_*) and the parameters of the web server
+        $path = $this->createEnvFile("HTTP_X_TEST=file\nTEST_PARAM=file");
+        $script = $this->tempDir . '/request.php';
+        file_put_contents(
+            $script,
+            '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
+            . '$_ENV = [];'
+            . 'Sodaho\EnvLoader\EnvLoader::load(' . var_export($path, true) . ', required: ["TEST_REQUIRED"]);'
+            . 'echo json_encode([$_ENV, getenv("HTTP_X_TEST"), getenv("TEST_PARAM"), getenv("TEST_REQUIRED_PARAM")]);'
+        );
+        $this->setProcessVariable('TEST_REQUIRED', 'process');
+
+        // Web servers send GATEWAY_INTERFACE as a parameter as well; that is not CGI and must not switch off the process environment
+        $response = PhpCgi::fastCgiRequest($binary, $script, [
+            'GATEWAY_INTERFACE' => 'CGI/1.1',
+            'HTTP_X_TEST' => 'header',
+            'TEST_PARAM' => 'param',
+            'TEST_REQUIRED_PARAM' => 'param',
+        ]);
+
+        $this->assertSame(
+            [['HTTP_X_TEST' => 'file', 'TEST_PARAM' => 'file', 'TEST_REQUIRED' => 'process'], 'header', 'param', 'param'],
+            json_decode($response, true)
+        );
+    }
+
+    public function testRequiredKeyFromARequestIsMissing(): void
+    {
+        $binary = PhpCgi::binary();
+        if ($binary === null) {
+            $this->markTestSkipped('No php-cgi next to ' . PHP_BINARY);
+        }
+
+        $path = $this->createEnvFile('TEST_OTHER=value');
+        $script = $this->tempDir . '/request.php';
+        file_put_contents(
+            $script,
+            '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
+            . '$_ENV = [];'
+            . 'try { Sodaho\EnvLoader\EnvLoader::load(' . var_export($path, true) . ', required: ["HTTP_X_TEST"]); }'
+            . 'catch (Throwable $e) { echo json_encode([$e::class, $e->getMessage(), getenv("HTTP_X_TEST"), $_ENV]); }'
+        );
+
+        $response = PhpCgi::fastCgiRequest($binary, $script, ['HTTP_X_TEST' => 'header']);
+
+        $this->assertSame(
+            [MissingRequiredKeyException::class, 'Missing required key: HTTP_X_TEST', 'header', []],
+            json_decode($response, true)
+        );
+    }
+
+    public function testCgiRequestDoesNotWinOverTheFile(): void
+    {
+        $binary = PhpCgi::binary();
+        if ($binary === null) {
+            $this->markTestSkipped('No php-cgi next to ' . PHP_BINARY);
+        }
+
+        // Under plain CGI the request is the environment of the process: local_only does not tell them apart
+        $path = $this->createEnvFile("HTTP_X_TEST=file\nCONTENT_TYPE=file");
+        $script = $this->tempDir . '/request.php';
+        file_put_contents(
+            $script,
+            '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
+            . '$_ENV = [];'
+            . 'Sodaho\EnvLoader\EnvLoader::load(' . var_export($path, true) . ');'
+            . 'try { Sodaho\EnvLoader\EnvLoader::load(' . var_export($path, true) . ', required: ["HTTP_X_REQUIRED"]); }'
+            . 'catch (Throwable $e) { $error = $e::class; }'
+            . 'echo json_encode([$_ENV, $error ?? null, getenv("HTTP_X_TEST", true), getenv("HTTP_X_REQUIRED", true)]);'
+        );
+
+        $response = PhpCgi::cgiRequest($binary, $script, [
+            'HTTP_X_TEST' => 'header',
+            'CONTENT_TYPE' => 'header',
+            'HTTP_X_REQUIRED' => 'header',
+        ]);
+
+        $this->assertSame(
+            [['HTTP_X_TEST' => 'file', 'CONTENT_TYPE' => 'file'], MissingRequiredKeyException::class, 'header', 'header'],
+            json_decode($response, true)
+        );
+    }
+
+    public function testProcessEnvironmentIsNotReadWhereItIsACgiRequest(): void
+    {
+        // The same without php-cgi: CGI sets GATEWAY_INTERFACE for every request
+        $this->setProcessVariable('GATEWAY_INTERFACE', 'CGI/1.1');
+        $this->setProcessVariable('TEST_PROCESS', 'process');
+        $path = $this->createEnvFile('TEST_PROCESS=file');
+        $_ENV = [];
+
+        EnvLoader::load($path);
+        $this->assertSame(['TEST_PROCESS' => 'file'], $_ENV);
+
+        $_ENV = [];
+        $this->expectException(MissingRequiredKeyException::class);
+        EnvLoader::load($this->createEnvFile('TEST_OTHER=value'), required: ['TEST_PROCESS']);
+    }
+
+    public function testGatewayInterfaceOfARequestDoesNotSwitchOffTheProcessEnvironment(): void
+    {
+        // Under FastCGI, GATEWAY_INTERFACE is a parameter of the request ($_SERVER), not a variable of the process
+        $this->setProcessVariable('TEST_PROCESS', 'process');
+        $_SERVER['GATEWAY_INTERFACE'] = 'CGI/1.1';
+
+        try {
+            EnvLoader::load($this->createEnvFile('TEST_PROCESS=file'));
+        } finally {
+            unset($_SERVER['GATEWAY_INTERFACE']);
+        }
+
+        $this->assertSame('process', $_ENV['TEST_PROCESS']);
+    }
+
+    public function testProcessEnvironmentIsNotReadWhereGetenvIsDisabled(): void
+    {
+        $path = $this->createEnvFile('TEST_PROCESS=file');
+        $script = 'require $argv[1];'
+            . 'Sodaho\EnvLoader\EnvLoader::load($argv[2]);'
+            . 'echo json_encode([function_exists("getenv"), $_ENV["TEST_PROCESS"]]);'
+            . 'try { Sodaho\EnvLoader\EnvLoader::load($argv[2], required: ["TEST_REQUIRED"]); }'
+            . 'catch (Throwable $e) { echo $e::class; }';
+        $process = proc_open(
+            [
+                PHP_BINARY, '-d', 'disable_functions=getenv', '-d', 'variables_order=GPCS', '-d', 'display_errors=1',
+                '-r', $script, dirname(__DIR__, 2) . '/vendor/autoload.php', $path,
+            ],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            ['TEST_PROCESS' => 'process', 'TEST_REQUIRED' => 'process'] + getenv()
+        );
+        $this->assertIsResource($process);
+        $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        proc_close($process);
+
+        // Without getenv() only $_ENV and the file count, as in 1.x
+        $this->assertSame('[false,"file"]' . MissingRequiredKeyException::class, $output);
+    }
+
+    public function testEveryGetenvCallAsksOnlyTheProcess(): void
+    {
+        // A syntactic pin for runs without php-cgi: no getenv() call without local_only
+        $code = '';
+        foreach (\PhpToken::tokenize((string) file_get_contents(dirname(__DIR__, 2) . '/src/EnvLoader.php')) as $token) {
+            $code .= $token->is([T_COMMENT, T_DOC_COMMENT]) ? '' : $token->text;
+        }
+        preg_match_all('/getenv\s*\([^()]*\)/', $code, $matches);
+
+        $this->assertSame(["getenv('GATEWAY_INTERFACE', true)", 'getenv($key, true)'], $matches[0]);
+    }
+
+    public function testRequiredKeyThatIsNoVariableNameIsMissing(): void
+    {
+        // getenv() must not see such a name: up to PHP 8.5 it cuts the name at the NUL byte and finds TEST_ODD
+        // (from 8.6 it throws a ValueError), and with "=" some systems find TEST_ODD as well
+        $this->setProcessVariable('TEST_ODD', 'KEY=value');
+        $path = $this->createEnvFile('TEST_OTHER=value');
+
+        foreach (['TEST_ODD=KEY', "TEST_ODD\0KEY"] as $key) {
+            try {
+                EnvLoader::load($path, required: [$key]);
+                $this->fail('Expected MissingRequiredKeyException');
+            } catch (MissingRequiredKeyException $e) {
+                $this->assertSame("Missing required key: $key", $e->getMessage());
+            }
+        }
     }
 
     public function testParseLeavesEnvUntouched(): void

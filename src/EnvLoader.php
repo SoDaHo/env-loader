@@ -9,6 +9,11 @@ class EnvLoader
     private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
 
     /**
+     * Load a .env file into $_ENV.
+     *
+     * Without overwrite, the environment wins over the file: a key keeps the value it has in $_ENV,
+     * otherwise it takes the value of the process environment, otherwise the one of the file.
+     *
      * @param array<string>|string $required Required keys - array or comma-separated string
      *
      * @throws Exception\FileNotFoundException
@@ -31,17 +36,53 @@ class EnvLoader
         $required = array_filter(array_map('trim', $required), fn ($key) => $key !== '');
 
         // Check before writing, so a failed load leaves $_ENV untouched
+        $requiredFromProcess = [];
         foreach ($required as $key) {
-            if (!array_key_exists($key, $values) && !array_key_exists($key, $_ENV)) {
+            if (array_key_exists($key, $values) || array_key_exists($key, $_ENV)) {
+                continue;
+            }
+
+            $value = self::processVariable($key);
+            if ($value === false) {
                 throw new Exception\MissingRequiredKeyException("Missing required key: $key");
             }
+            $requiredFromProcess[$key] = $value;
         }
 
         foreach ($values as $key => $value) {
-            if ($overwrite || !array_key_exists($key, $_ENV)) {
+            if ($overwrite) {
                 $_ENV[$key] = $value;
+            } elseif (!array_key_exists($key, $_ENV)) {
+                $fromProcess = self::processVariable($key);
+                $_ENV[$key] = $fromProcess === false ? $value : $fromProcess;
             }
         }
+
+        // A required key that only the process environment defines is copied: what is required can be read from $_ENV
+        $_ENV += $requiredFromProcess;
+    }
+
+    /**
+     * The value of a variable in the environment of the PHP process, false if it is not set or not to be read.
+     *
+     * Only the process itself is asked (local_only). The plain getenv() also returns what the web server
+     * passes with a request - under FastCGI every request header as HTTP_* - and a request must not
+     * overrule the file.
+     */
+    private static function processVariable(string $key): string|false
+    {
+        // No environment holds a name with "=" or a NUL byte; getenv() throws for NUL from PHP 8.6
+        if (strpbrk($key, "=\0") !== false) {
+            return false;
+        }
+
+        // getenv() can be disabled (disable_functions). And under CGI, which sets GATEWAY_INTERFACE,
+        // the environment of the process is the request itself
+        if (!function_exists('getenv') || getenv('GATEWAY_INTERFACE', true) !== false) {
+            return false;
+        }
+
+        return getenv($key, true);
     }
 
 
