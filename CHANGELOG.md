@@ -8,6 +8,7 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - `load()` returns the values of the file, as `parse()` does — also those the environment has overruled.
 - `InvalidLineException` for a line that is neither empty, a comment nor an assignment.
 - `TrailingCharactersException` for text after a closing quote.
+- A single CR ends a line, so files with CR line endings (and mixed ones) are read.
 
 ### Changed
 - PHP `^8.5` is required (1.x: `^8.2`). CI also runs the tests on the pre-release of PHP 8.6.
@@ -16,6 +17,8 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - `EnvLoader` is `final`.
 - A line without `=` throws `InvalidLineException` instead of being ignored.
 - Text after a closing quote throws `TrailingCharactersException` instead of `UnterminatedQuoteException`.
+- Line endings are recognized the same way whatever `auto_detect_line_endings` says.
+- `parse()` returns the whole file or throws `FileNotReadableException`: where a read fails, also if PHP reports the end of the file after it (an I/O error on a disk), and where a read brings no data before the file has ended. A line is never cut off there, never joined across it, and never reported as malformed for the part that was read.
 
 ### Upgrading from 1.x
 - **PHP version:** `"sodaho/env-loader": "^1.1"` runs on PHP `^8.2`, `"^2.0"` needs PHP `^8.5`. Stay on `^1.1` until the application runs on PHP 8.5.
@@ -25,6 +28,8 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - **Subclasses:** `class MyLoader extends EnvLoader { … parent::load($path); … }` (1.x) becomes `final class MyLoader { … EnvLoader::load($path); … }`: a class of your own that calls `EnvLoader::load()`, `parse()` and `format()`.
 - **Lines without `=`:** a line such as `DB_PASSWORD secret` or `export DB_HOST` was skipped (1.x) and throws `InvalidLineException` now. Add the `=`, or turn the line into a comment with `#`. In a file shared with `docker run --env-file`, a bare `DB_HOST` means "take the value from the environment": remove the line and name the key in `required`, which takes it from the process environment.
 - **Text after a closing quote:** `catch (UnterminatedQuoteException $e)` (1.x) no longer catches `KEY="value" text`; catch `TrailingCharactersException` as well, or `EnvLoaderException` for every error.
+- **CR inside a line:** a value that contained a CR (1.x) ends at the CR now, and what follows is the next line: `KEY=a<CR>b` throws `InvalidLineException` for the line `b`, `KEY="a<CR>b"` throws `UnterminatedQuoteException`, `KEY=a<CR>OTHER=b` is two keys.
+- **`auto_detect_line_endings`:** with that deprecated setting switched on, a file whose first line ending is a CR was read with CR as the only line ending (1.x): `A=1<CR>B=2<LF>C` gave `B` the value `2<LF>C`. Now LF ends the line there as well, and the line `C` throws `InvalidLineException`.
 
 ## [1.1.0] - 2026-10-02
 

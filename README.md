@@ -138,7 +138,7 @@ Details:
 - **Single quotes:** literal, a single-quoted value cannot contain `'`.
 - **Ignored lines:** empty lines and comment lines. Every other line has to be an assignment: a line without `=` throws.
 - **Duplicate keys:** the last one wins.
-- **Files:** LF or CRLF line endings, a UTF-8 BOM is skipped.
+- **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; a UTF-8 BOM is skipped. A value cannot contain a line break.
 
 ## Exceptions
 
@@ -164,7 +164,7 @@ try {
 | Exception | When |
 |-----------|------|
 | `FileNotFoundException` | File does not exist or is a directory |
-| `FileNotReadableException` | File exists but cannot be read |
+| `FileNotReadableException` | File exists but cannot be read, or reading it failed or stopped before its end (an error handler of yours that throws although the message is suppressed with `@` is the first to speak) |
 | `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
 | `UnterminatedQuoteException` | Quoted value missing closing quote |
