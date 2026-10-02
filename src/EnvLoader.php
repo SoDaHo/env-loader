@@ -55,7 +55,8 @@ class EnvLoader
      */
     public static function parse(string $path): array
     {
-        if (!file_exists($path)) {
+        // Suppress the open_basedir warning: every failure is reported as an exception
+        if (!@file_exists($path)) {
             throw new Exception\FileNotFoundException("File not found: $path");
         }
 

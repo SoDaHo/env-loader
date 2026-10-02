@@ -400,6 +400,49 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    public function testOpenBasedirRestrictionThrowsWithoutWarning(): void
+    {
+        $path = $this->createEnvFile('TEST_KEY=value');
+        $root = dirname(__DIR__, 2);
+
+        // open_basedir cannot be lifted again, so the restricted call runs in a child process
+        $allowed = $root . '/src/' . PATH_SEPARATOR . $root . '/vendor/';
+        $output = $this->parseInChildProcess($path, ['-d', 'open_basedir=' . $allowed]);
+
+        $this->assertSame(FileNotFoundException::class, $output);
+    }
+
+    /**
+     * Runs parse() in a child process whose error handler reports what a framework would turn into an exception.
+     *
+     * @param list<string> $options
+     * @param string $namespaces Namespace blocks to declare before the call
+     *
+     * @return string Output of $namespaces and warnings, then the parsed values as JSON or the class of the exception
+     */
+    private function parseInChildProcess(string $path, array $options, string $namespaces = ''): string
+    {
+        $script = $namespaces . 'namespace {'
+            . 'require $argv[1];'
+            . 'set_error_handler(function (int $level, string $message): bool {'
+            . '    if ((error_reporting() & $level) !== 0) { echo "WARNING: $message\n"; }'
+            . '    return true;'
+            . '});'
+            . 'try { echo json_encode(Sodaho\EnvLoader\EnvLoader::parse($argv[2])); }'
+            . 'catch (Throwable $e) { echo $e::class; }'
+            . '}';
+        $process = proc_open(
+            [PHP_BINARY, ...$options, '-r', $script, dirname(__DIR__, 2) . '/vendor/autoload.php', $path],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        $this->assertIsResource($process);
+        $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        proc_close($process);
+
+        return $output;
+    }
+
     public function testThrowsUnterminatedDoubleQuoteException(): void
     {
         $path = $this->createEnvFile('TEST_KEY="unterminated');
