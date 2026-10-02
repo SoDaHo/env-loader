@@ -48,6 +48,15 @@ EnvLoader::load('.env', required: 'DB_HOST,DB_NAME');
 EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
 ```
 
+A required key may come from the file or from an existing `$_ENV` entry; an empty value counts. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
+
+`overwrite: false` and `required` do not see the process environment, only `$_ENV`. Whether real environment variables appear there depends on `variables_order` in php.ini: with `GPCS` (php.ini-production and php.ini-development) `$_ENV` starts empty, so a value from the file is used even if the process environment defines the key. To let the process environment win, copy it first:
+
+```php
+$_ENV += getenv();
+EnvLoader::load('.env');
+```
+
 ### Parse Without Loading
 
 ```php
@@ -57,6 +66,17 @@ $values = EnvLoader::parse('.env');
 print_r($values);
 // ['DB_HOST' => 'localhost', 'DB_NAME' => 'myapp', ...]
 ```
+
+### Write .env Content
+
+```php
+// Returns the content as a string; every value is double-quoted and escaped
+$content = EnvLoader::format(['DB_HOST' => 'localhost', 'DB_PASSWORD' => 'p@ss #1 "x"']);
+
+file_put_contents('.env', $content);
+```
+
+`parse()` reads formatted content back unchanged, so a script that generates a .env file (e.g. a container entrypoint) should use it instead of writing `KEY=$value` lines itself. Values that are not strings or contain a line break or NUL byte throw `InvalidValueException`.
 
 ## Supported .env Syntax
 
@@ -88,6 +108,16 @@ export DB_PORT=3306
   SPACED_KEY  =  value
 ```
 
+Details:
+
+- **Inline comments:** in an unquoted value, a `#` preceded by a space starts a comment (`KEY= # note` is empty). A `#` after a tab or without a space is part of the value. Quote values that contain ` #` — `PASSWORD=abc #123` is read as `abc`.
+- **After a closing quote** only a comment may follow; it needs no space (`KEY="value"#note`).
+- **Double quotes:** only `\"` and `\\` are unescaped. Everything else stays literal, including `\n` and `\$`.
+- **Single quotes:** literal, a single-quoted value cannot contain `'`.
+- **Ignored lines:** empty lines, comment lines and lines without `=`.
+- **Duplicate keys:** the last one wins.
+- **Files:** LF or CRLF line endings, a UTF-8 BOM is skipped.
+
 ## Exceptions
 
 All exceptions extend `EnvLoaderException` for easy catching:
@@ -112,10 +142,13 @@ try {
 | Exception | When |
 |-----------|------|
 | `FileNotFoundException` | File does not exist or is a directory |
-| `FileNotReadableException` | File exists but not readable |
+| `FileNotReadableException` | File exists but cannot be read |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
-| `UnterminatedQuoteException` | Quoted value missing closing quote |
-| `MissingRequiredKeyException` | Required key missing after loading |
+| `UnterminatedQuoteException` | Quoted value missing closing quote, or text other than a comment after it |
+| `MissingRequiredKeyException` | Required key missing in file and `$_ENV` |
+| `InvalidValueException` | `format()`: value is not a string, or contains a line break or NUL byte |
+
+Messages for errors in the file name the file, the line and, for quote errors, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well.
 
 ## Key Naming Rules
 

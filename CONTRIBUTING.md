@@ -45,7 +45,7 @@ Key rules:
 
 ## Static Analysis
 
-PHPStan runs at **Level 9** (maximum strictness). All code must pass without errors:
+PHPStan runs at **Level 9** on `src` and `tests`. All code must pass without errors:
 
 ```bash
 composer analyse
