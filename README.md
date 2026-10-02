@@ -50,12 +50,23 @@ EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
 
 A required key may come from the file or from an existing `$_ENV` entry; an empty value counts. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
 
-`overwrite: false` and `required` do not see the process environment, only `$_ENV`. Whether real environment variables appear there depends on `variables_order` in php.ini: with `GPCS` (php.ini-production and php.ini-development) `$_ENV` starts empty, so a value from the file is used even if the process environment defines the key. To let the process environment win, copy it first:
+`overwrite: false` and `required` do not see the process environment, only `$_ENV`. Whether real environment variables appear there depends on `variables_order` in php.ini: with `GPCS` (php.ini-production and php.ini-development) `$_ENV` starts empty, so a value from the file is used even if the process environment defines the key. To let the process environment win, copy the keys of the file and the required keys first:
 
 ```php
-$_ENV += getenv();
-EnvLoader::load('.env');
+$required = ['DB_HOST', 'DB_NAME'];
+
+foreach ([...array_keys(EnvLoader::parse('.env')), ...$required] as $key) {
+    $value = getenv($key, true);
+
+    if ($value !== false && !array_key_exists($key, $_ENV)) {
+        $_ENV[$key] = $value;
+    }
+}
+
+EnvLoader::load('.env', required: $required);
 ```
+
+What the loop has copied stays in `$_ENV` if `load()` throws afterwards. Do not copy all of `getenv()` into `$_ENV`: under FastCGI (PHP-FPM) it also returns what the web server passes with the request, with every request header as `HTTP_*`, and `$_ENV` wins over the file. `getenv($key, true)` asks only the PHP process. For the same reason keep `E` out of `variables_order` under PHP-FPM (it is the default when no php.ini is loaded): with it, PHP fills `$_ENV` with the request itself. Under plain CGI the request is the environment of the process; do not copy anything there.
 
 ### Parse Without Loading
 
