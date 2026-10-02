@@ -6,6 +6,8 @@ namespace Sodaho\EnvLoader;
 
 class EnvLoader
 {
+    private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
+
     /**
      * @param array<string>|string $required Required keys - array or comma-separated string
      *
@@ -68,31 +70,48 @@ class EnvLoader
             throw new Exception\FileNotReadableException("File not readable: $path");
         }
 
-        // Suppress warning and handle failure explicitly (TOCTOU protection)
-        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        // Suppress warnings and handle failure explicitly (TOCTOU protection)
+        $handle = @fopen($path, 'rb');
 
         // @codeCoverageIgnoreStart
-        if ($lines === false) {
+        if ($handle === false) {
             // Race condition: file was deleted/changed between checks and read
             throw new Exception\FileNotReadableException("Could not read file: $path");
         }
         // @codeCoverageIgnoreEnd
 
-        // Strip UTF-8 BOM from first line (common in Windows-created files)
-        if (isset($lines[0])) {
-            $lines[0] = ltrim($lines[0], "\xEF\xBB\xBF");
-        }
-
         $result = [];
+        $lineNumber = 0;
+        $bomPossible = true;
 
-        foreach ($lines as $line) {
-            $parsed = self::parseLine($line);
+        try {
+            // Read line by line: empty lines count for the line number, but cost no memory
+            while (($line = @fgets($handle)) !== false) {
+                $lineNumber++;
 
-            if ($parsed !== null) {
-                [$key, $value] = $parsed;
-                self::validateKey($key);
-                $result[$key] = $value;
+                // Remove the line ending: LF, CRLF, or a CR that PHP was configured to detect
+                if (str_ends_with($line, "\n")) {
+                    $line = substr($line, 0, -1);
+                }
+                if (str_ends_with($line, "\r")) {
+                    $line = substr($line, 0, -1);
+                }
+
+                // Strip UTF-8 BOM from the first non-empty line (common in Windows-created files)
+                if ($bomPossible && $line !== '') {
+                    $line = ltrim($line, "\xEF\xBB\xBF");
+                    $bomPossible = false;
+                }
+
+                $parsed = self::parseLine($line, "$path on line $lineNumber");
+
+                if ($parsed !== null) {
+                    [$key, $value] = $parsed;
+                    $result[$key] = $value;
+                }
             }
+        } finally {
+            @fclose($handle);
         }
 
         return $result;
@@ -100,14 +119,19 @@ class EnvLoader
 
 
     /**
+     * @param string $location File and line for error messages - messages never contain file content
+     *
+     * @throws Exception\InvalidKeyException
+     * @throws Exception\UnterminatedQuoteException
+     *
      * @return array{0: string, 1: string}|null
      */
-    private static function parseLine(string $line): ?array
+    private static function parseLine(#[\SensitiveParameter] string $line, string $location): ?array
     {
         $line = trim($line);
 
-        // Skip empty lines and comments
-        if ($line === '' || str_starts_with($line, '#')) {
+        // Skip comments
+        if (str_starts_with($line, '#')) {
             return null;
         }
 
@@ -120,26 +144,45 @@ class EnvLoader
             }
         }
 
-        // Must contain =
-        if (!str_contains($line, '=')) {
+        // Skip empty lines and lines without =
+        $pos = strpos($line, '=');
+        if ($pos === false) {
             return null;
         }
 
-        // Split only on first = (str_contains check above guarantees this succeeds)
-        $pos = (int) strpos($line, '=');
+        // Split only on first =
         $key = trim(substr($line, 0, $pos));
-        $value = substr($line, $pos + 1);
 
-        $value = self::parseValue($value);
+        // Validate first: only a valid key may appear in the error messages for its value
+        if (!self::isValidKey($key)) {
+            throw new Exception\InvalidKeyException("Invalid key in $location");
+        }
 
-        return [$key, $value];
+        return [$key, self::parseValue(substr($line, $pos + 1), $key, $location)];
+    }
+
+    /**
+     * Letters, digits and underscores, not starting with a digit.
+     *
+     * Checked without a regex: a warning raised inside a PCRE call would
+     * expose its subject in the stack trace.
+     */
+    private static function isValidKey(string $key): bool
+    {
+        return $key !== ''
+            && strspn($key, self::KEY_CHARACTERS) === strlen($key)
+            && strspn($key, '0123456789', 0, 1) === 0;
     }
 
     /**
      * @throws Exception\UnterminatedQuoteException
      */
-    private static function parseValue(string $value): string
-    {
+    private static function parseValue(
+        #[\SensitiveParameter]
+        string $value,
+        string $key,
+        string $location
+    ): string {
         $trimmed = trim($value);
 
         // Double quoted: allow only non-quote/non-backslash chars or escape sequences
@@ -147,7 +190,9 @@ class EnvLoader
             if (preg_match('/^"((?:[^"\\\\]|\\\\.)*)"\s*(#.*)?$/', $trimmed, $matches)) {
                 return self::unescapeDoubleQuoted($matches[1]);
             }
-            throw new Exception\UnterminatedQuoteException("Unterminated double quote: $trimmed");
+            throw new Exception\UnterminatedQuoteException(
+                "Unterminated double quote for key \"$key\" in $location"
+            );
         }
 
         // Single quoted: no escape processing, no single quotes inside
@@ -155,7 +200,9 @@ class EnvLoader
             if (preg_match("/^'([^']*)'\s*(#.*)?$/", $trimmed, $matches)) {
                 return $matches[1];
             }
-            throw new Exception\UnterminatedQuoteException("Unterminated single quote: $trimmed");
+            throw new Exception\UnterminatedQuoteException(
+                "Unterminated single quote for key \"$key\" in $location"
+            );
         }
 
         // Unquoted - remove inline comment. Scan the untrimmed value: "KEY= # comment" is empty
@@ -168,20 +215,10 @@ class EnvLoader
     }
 
     /**
-     * @throws Exception\InvalidKeyException
-     */
-    private static function validateKey(string $key): void
-    {
-        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $key)) {
-            throw new Exception\InvalidKeyException("Invalid key: $key");
-        }
-    }
-
-    /**
      * Only unescapes \\ and \" — other sequences like \n are preserved
      * literally to prevent data corruption with Windows paths.
      */
-    private static function unescapeDoubleQuoted(string $value): string
+    private static function unescapeDoubleQuoted(#[\SensitiveParameter] string $value): string
     {
         return preg_replace_callback(
             '/\\\\(.)/',

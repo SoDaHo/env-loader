@@ -47,6 +47,22 @@ class EnvLoaderTest extends TestCase
         return $path;
     }
 
+    /**
+     * Arguments of the EnvLoader calls in the stack trace, and of everything they called, as text.
+     */
+    private function traceArguments(\Throwable $e): string
+    {
+        $trace = $e->getTrace();
+        $outermost = 0;
+        foreach ($trace as $index => $frame) {
+            if (($frame['class'] ?? null) === EnvLoader::class) {
+                $outermost = $index;
+            }
+        }
+
+        return print_r(array_column(array_slice($trace, 0, $outermost + 1), 'args'), true);
+    }
+
     // ============================================
     // Basic Parsing
     // ============================================
@@ -525,6 +541,7 @@ class EnvLoaderTest extends TestCase
             'tab and hash after equals is a value' => ["TEST_A=\t#fff", ['TEST_A' => '#fff']],
             'first space-hash starts the comment' => ['TEST_A=one # two # three', ['TEST_A' => 'one']],
             'trailing space-hash' => ['TEST_A=value #', ['TEST_A' => 'value']],
+            'BOM after empty lines' => ["\n\r\n\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
             'export followed by tab' => ["export\tTEST_A=1", ['TEST_A' => '1']],
             'export followed by several spaces' => ['export   TEST_A=1', ['TEST_A' => '1']],
             'key named export' => ['export=1', ['export' => '1']],
@@ -562,6 +579,97 @@ class EnvLoaderTest extends TestCase
         }
 
         $this->assertSame($expected, $result);
+    }
+
+    // ============================================
+    // Error Messages
+    // ============================================
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function malformedQuoteProvider(): array
+    {
+        return [
+            'unterminated double quote' => ['TEST_KEY="hunter2', 'Unterminated double quote'],
+            'unterminated single quote' => ["TEST_KEY='hunter2", 'Unterminated single quote'],
+            'backslash as last character' => ['TEST_KEY="hunter2\\', 'Unterminated double quote'],
+            'escaped closing quote' => ['TEST_KEY="hunter2\\"', 'Unterminated double quote'],
+            'multiline value' => ["TEST_KEY=\"hunter2\ntail\"", 'Unterminated double quote'],
+        ];
+    }
+
+    #[DataProvider('malformedQuoteProvider')]
+    public function testMalformedQuoteNamesKeyAndLineButNeverTheValue(string $line, string $problem): void
+    {
+        // Blank and comment lines count: the reported line number is the one in the file
+        $path = $this->createEnvFile("TEST_FIRST=1\n\n# comment\n" . $line);
+        $traceArguments = ini_set('zend.exception_ignore_args', '0');
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected UnterminatedQuoteException');
+        } catch (UnterminatedQuoteException $e) {
+            $this->assertSame("$problem for key \"TEST_KEY\" in $path on line 4", $e->getMessage());
+
+            // The stack trace carries the arguments, but not those holding file content
+            $arguments = $this->traceArguments($e);
+            $this->assertStringContainsString($path, $arguments);
+            $this->assertStringNotContainsString('hunter2', $arguments);
+            $this->assertStringNotContainsString('tail', $arguments);
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $traceArguments);
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function invalidKeyProvider(): array
+    {
+        return [
+            'starts with a digit' => ['1TEST=hunter2'],
+            'hyphen' => ['TEST-KEY=hunter2'],
+            'space inside' => ['TEST KEY=hunter2'],
+            'value in front of =' => ['TEST_KEY hunter2=x'],
+            'empty key' => ['=hunter2'],
+            'non-ASCII letter' => ['TEST_KÉY=hunter2'],
+            'NUL inside' => ["TEST\0KEY=hunter2"],
+            'BOM in a later line' => ["\xEF\xBB\xBFTEST_KEY=hunter2"],
+            'invalid key with unterminated quote' => ['TEST-KEY="hunter2'],
+        ];
+    }
+
+    #[DataProvider('invalidKeyProvider')]
+    public function testInvalidKeyNamesOnlyTheLine(string $line): void
+    {
+        $path = $this->createEnvFile("TEST_FIRST=1\r\n\r\n" . $line);
+        $traceArguments = ini_set('zend.exception_ignore_args', '0');
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidKeyException');
+        } catch (InvalidKeyException $e) {
+            $this->assertSame("Invalid key in $path on line 3", $e->getMessage());
+
+            $arguments = $this->traceArguments($e);
+            $this->assertStringContainsString($path, $arguments);
+            $this->assertStringNotContainsString('hunter2', $arguments);
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $traceArguments);
+        }
+    }
+
+    public function testBomDoesNotShiftLineNumber(): void
+    {
+        $path = $this->createEnvFile("\xEF\xBB\xBFTEST-KEY=value");
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidKeyException');
+        } catch (InvalidKeyException $e) {
+            $this->assertSame("Invalid key in $path on line 1", $e->getMessage());
+        }
     }
 
     // ============================================
