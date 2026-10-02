@@ -361,10 +361,15 @@ final class EnvLoader
             return self::parseSingleQuoted($trimmed, $key, $location);
         }
 
-        // Unquoted - remove inline comment. Scan the untrimmed value: "KEY= # comment" is empty
-        $commentPos = strpos($value, ' #');
-        if ($commentPos !== false) {
-            $value = substr($value, 0, $commentPos);
+        // Unquoted - remove inline comment: the first "#" after whitespace.
+        // Scan the untrimmed value: "KEY= # comment" is empty
+        $offset = 0;
+        while (($pos = strpos($value, '#', $offset)) !== false) {
+            if ($pos > 0 && str_contains(self::WHITESPACE, $value[$pos - 1])) {
+                $value = substr($value, 0, $pos);
+                break;
+            }
+            $offset = $pos + 1;
         }
 
         return trim($value, self::WHITESPACE);
