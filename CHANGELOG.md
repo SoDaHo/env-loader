@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- A read error on a file on disk that persists (an I/O error), after which PHP reports the end of the file, returned the lines read so far as if they were the whole file. It throws `FileNotReadableException` now, if a second read fails as well. Not covered: an error that does not repeat, and a read error that cuts a line short, which still lets that line through as it was read; 2.0 reads differently and closes those as well.
+- README: the advice to copy all of `getenv()` into `$_ENV` is gone. Under PHP-FPM that copies request headers into `$_ENV`, where they win over the file; the README shows how to copy only the keys of the file.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added
