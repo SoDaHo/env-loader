@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" as it is built.
+
+### Changed
+- PHP `^8.5` is required (1.x: `^8.2`).
+
+### Upgrading from 1.x
+- **PHP version:** `"sodaho/env-loader": "^1.1"` runs on PHP `^8.2`, `"^2.0"` needs PHP `^8.5`. Stay on `^1.1` until the application runs on PHP 8.5.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added
