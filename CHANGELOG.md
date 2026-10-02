@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-02
+
 ### Fixed
 - A read error on a file on disk that persists (an I/O error), after which PHP reports the end of the file, returned the lines read so far as if they were the whole file. It throws `FileNotReadableException` now, if a second read fails as well. Not covered: an error that does not repeat, and a read error that cuts a line short, which still lets that line through as it was read; 2.0 reads differently and closes those as well.
 - README: the advice to copy all of `getenv()` into `$_ENV` is gone. Under PHP-FPM that copies request headers into `$_ENV`, where they win over the file; the README shows how to copy only the keys of the file.
@@ -45,6 +47,7 @@
 - PHPStan level 9 static analysis.
 - GitHub Actions CI for PHP 8.2, 8.3, 8.4, 8.5.
 
-[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/SoDaHo/env-loader/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/SoDaHo/env-loader/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SoDaHo/env-loader/releases/tag/v1.0.0
