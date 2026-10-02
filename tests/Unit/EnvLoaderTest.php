@@ -875,11 +875,16 @@ class EnvLoaderTest extends TestCase
             'trailing space-hash' => ['TEST_A=value #', ['TEST_A' => 'value']],
             'comment line containing =' => ["# TEST_OFF=1\nTEST_A=1", ['TEST_A' => '1']],
             'indented comment line containing =' => ["   # TEST_OFF=1\nTEST_A=1", ['TEST_A' => '1']],
-            'whitespace-only line' => ["TEST_A=1\n \t \nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'whitespace-only line' => ["TEST_A=1\n \t\v\f\0 \nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'comment line after a form feed' => ["\f# TEST_OFF=1\nTEST_A=1", ['TEST_A' => '1']],
+            'form feed around key and value' => ["\fTEST_A\f=\fvalue\f", ['TEST_A' => 'value']],
+            'form feed around quoted value' => ["TEST_A=\f\"value\"\f", ['TEST_A' => 'value']],
+            'form feed between export and key named export' => ["export \f=1", ['export' => '1']],
             'comment directly after double quote' => ['TEST_A="v"#c', ['TEST_A' => 'v']],
             'comment after single quote' => ["TEST_A='v' # c", ['TEST_A' => 'v']],
             'any whitespace between quote and comment' => ["TEST_A=\"v\" \t\v\f# c", ['TEST_A' => 'v']],
             'whitespace after quote without comment' => ["TEST_A='v' \t\v\f\nTEST_B=1", ['TEST_A' => 'v', 'TEST_B' => '1']],
+            'NUL at the end of the line is trimmed, also after a quote' => ["TEST_A=\"v\"\0\nTEST_B=v\0 \0", ['TEST_A' => 'v', 'TEST_B' => 'v']],
             'comment directly after single quote' => ["TEST_A='v'#c", ['TEST_A' => 'v']],
             'double quotes in comment after double-quoted value' => ['TEST_A="a" # "b"', ['TEST_A' => 'a']],
             'single quotes in comment after single-quoted value' => ["TEST_A='a' # 'b'", ['TEST_A' => 'a']],
@@ -1677,6 +1682,65 @@ class EnvLoaderTest extends TestCase
         EnvLoader::load($path, required: [' TEST_ARR_ONE ', '', 'TEST_ARR_TWO']);
 
         $this->assertSame('two', $_ENV['TEST_ARR_TWO']);
+    }
+
+    public function testRequiredKeysAreTrimmedLikeTheFile(): void
+    {
+        // The form feed is whitespace in every PHP version (the default of trim() includes it from 8.6);
+        // line breaks come with a list that is written over several lines
+        $path = $this->createEnvFile("TEST_FORM_FEED=value\nTEST_NEXT_LINE=value");
+        EnvLoader::load($path, required: "\fTEST_FORM_FEED\f,\r\n\tTEST_NEXT_LINE\n,\f");
+
+        $this->assertSame('value', $_ENV['TEST_NEXT_LINE']);
+
+        $this->expectExceptionMessage('Missing required key: TEST_MISSING');
+        EnvLoader::load($path, required: ["\nTEST_FORM_FEED", "TEST_MISSING\r"]);
+    }
+
+    /**
+     * @return array<string, array{array<mixed>}>
+     */
+    public static function looseRequiredProvider(): array
+    {
+        return [
+            'null' => [['TEST_KEY', null]],
+            'integer' => [['TEST_KEY', 123]],
+            'false' => [[false, 'TEST_KEY']],
+        ];
+    }
+
+    /**
+     * @param array<string> $required
+     */
+    #[DataProvider('looseRequiredProvider')]
+    public function testRequiredEntryThatIsNotAStringIsReadAsOne(array $required): void
+    {
+        // As in 1.x: null and false are empty entries, a number is a key
+        $_ENV = [123 => 'set'];
+        EnvLoader::load($this->createEnvFile('TEST_KEY=value'), required: $required);
+
+        $this->assertSame([123 => 'set', 'TEST_KEY' => 'value'], $_ENV);
+    }
+
+    /**
+     * @return array<string, array{array<mixed>}>
+     */
+    public static function numericRequiredProvider(): array
+    {
+        return ['integer' => [['TEST_KEY', 123]], 'float' => [[1.5, 'TEST_KEY']]];
+    }
+
+    /**
+     * @param array<string> $required
+     */
+    #[DataProvider('numericRequiredProvider')]
+    public function testRequiredNumberIsAKeyThatCanBeMissing(array $required): void
+    {
+        $_ENV = [];
+
+        $this->expectException(MissingRequiredKeyException::class);
+        $this->expectExceptionMessageMatches('/^Missing required key: (123|1\.5)$/');
+        EnvLoader::load($this->createEnvFile('TEST_KEY=value'), required: $required);
     }
 
     public function testMissingRequiredKeyFromStringIsNamedTrimmed(): void

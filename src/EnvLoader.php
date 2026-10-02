@@ -11,6 +11,9 @@ final class EnvLoader
     // Bytes asked for with one read
     private const CHUNK_SIZE = 8192;
 
+    // What trim() removes. Spelled out, because the default of PHP changes: from 8.6 it includes the form feed
+    private const WHITESPACE = " \t\n\r\v\f\0";
+
     /**
      * Load a .env file into $_ENV and return the values of the file.
      *
@@ -40,7 +43,10 @@ final class EnvLoader
         if (is_string($required)) {
             $required = explode(',', $required);
         }
-        $required = array_filter(array_map('trim', $required), fn ($key) => $key !== '');
+        $required = array_filter(
+            array_map(fn ($key) => trim((string) $key, self::WHITESPACE), $required),
+            fn ($key) => $key !== ''
+        );
 
         // Check before writing, so a failed load leaves $_ENV untouched
         $requiredFromProcess = [];
@@ -289,7 +295,7 @@ final class EnvLoader
      */
     private static function parseLine(#[\SensitiveParameter] string $line, string $location): ?array
     {
-        $line = trim($line);
+        $line = trim($line, self::WHITESPACE);
 
         // Skip empty lines and comments
         if ($line === '' || str_starts_with($line, '#')) {
@@ -300,7 +306,7 @@ final class EnvLoader
         if (str_starts_with($line, 'export')) {
             $rest = substr($line, 6);
 
-            if (strspn($rest, " \t", 0, 1) === 1 && !str_starts_with(ltrim($rest), '=')) {
+            if (strspn($rest, " \t", 0, 1) === 1 && !str_starts_with(ltrim($rest, self::WHITESPACE), '=')) {
                 $line = $rest;
             }
         }
@@ -312,7 +318,7 @@ final class EnvLoader
         }
 
         // Split only on first =
-        $key = trim(substr($line, 0, $pos));
+        $key = trim(substr($line, 0, $pos), self::WHITESPACE);
 
         // Validate first: only a valid key may appear in the error messages for its value
         if (!self::isValidKey($key)) {
@@ -345,7 +351,7 @@ final class EnvLoader
         string $key,
         string $location
     ): string {
-        $trimmed = trim($value);
+        $trimmed = trim($value, self::WHITESPACE);
 
         if (str_starts_with($trimmed, '"')) {
             return self::parseDoubleQuoted($trimmed, $key, $location);
@@ -361,7 +367,7 @@ final class EnvLoader
             $value = substr($value, 0, $commentPos);
         }
 
-        return trim($value);
+        return trim($value, self::WHITESPACE);
     }
 
     /**
