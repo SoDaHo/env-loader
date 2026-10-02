@@ -30,10 +30,9 @@ class EnvLoader
 
         // Handle required keys - normalize to array
         if (is_string($required)) {
-            $required = $required !== ''
-                ? array_filter(array_map('trim', explode(',', $required)), fn ($key) => $key !== '')
-                : [];
+            $required = explode(',', $required);
         }
+        $required = array_filter(array_map('trim', $required), fn ($key) => $key !== '');
 
         foreach ($required as $key) {
             if (!array_key_exists($key, $_ENV)) {
