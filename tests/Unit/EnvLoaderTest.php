@@ -482,6 +482,14 @@ class EnvLoaderTest extends TestCase
             'tab and hash after equals is a value' => ["TEST_A=\t#fff", ['TEST_A' => '#fff']],
             'first space-hash starts the comment' => ['TEST_A=one # two # three', ['TEST_A' => 'one']],
             'trailing space-hash' => ['TEST_A=value #', ['TEST_A' => 'value']],
+            'export followed by tab' => ["export\tTEST_A=1", ['TEST_A' => '1']],
+            'export followed by several spaces' => ['export   TEST_A=1', ['TEST_A' => '1']],
+            'key named export' => ['export=1', ['export' => '1']],
+            'key named export with spaces around =' => ['export = 1', ['export' => '1']],
+            'key named export with two spaces before =' => ['export  =1', ['export' => '1']],
+            'key named export with tab and NUL before =' => ["export\t\0=1", ['export' => '1']],
+            'key starting with export' => ['exportTEST=1', ['exportTEST' => '1']],
+            'export without assignment is ignored' => ["export TEST_A\nTEST_B=1", ['TEST_B' => '1']],
         ];
     }
 

@@ -110,9 +110,13 @@ class EnvLoader
             return null;
         }
 
-        // Strip optional "export " prefix (bash compatibility)
-        if (str_starts_with($line, 'export ')) {
-            $line = substr($line, 7);
+        // Strip optional "export" prefix (bash compatibility), unless it is the key itself ("export = 1")
+        if (str_starts_with($line, 'export')) {
+            $rest = substr($line, 6);
+
+            if (strspn($rest, " \t", 0, 1) === 1 && !str_starts_with(ltrim($rest), '=')) {
+                $line = $rest;
+            }
         }
 
         // Must contain =
