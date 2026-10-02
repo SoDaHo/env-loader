@@ -692,42 +692,19 @@ class EnvLoaderTest extends TestCase
         }
     }
 
-    public function testPcreWarningDoesNotReachTheErrorHandler(): void
+    public function testSourceCallsNoRegexOrLocaleFunction(): void
     {
-        $path = $this->createEnvFile('TEST_QUOTED="value" tail');
-
-        // Where PCRE cannot allocate JIT memory (macOS, SELinux), the first preg call of a process warns.
-        // Elsewhere this passes without proving anything.
-        $output = $this->parseInChildProcess($path, ['-d', 'pcre.jit=1']);
-
-        $this->assertSame(TrailingCharactersException::class, $output);
-    }
-
-    public function testPcreNeverSeesFileContent(): void
-    {
-        $path = $this->createEnvFile("export TEST_KEY=hunter2\nTEST_QUOTED=\"hunter2\" # hunter2\nTEST_BROKEN=\"hunter2\" hunter2");
-
-        // A warning raised inside a preg call carries its arguments into the stack trace of an error handler
-        // that throws. The child process therefore replaces the preg functions EnvLoader could call by
-        // ones that print their arguments.
-        $shims = 'namespace Sodaho\EnvLoader {';
-        foreach (['preg_match', 'preg_match_all', 'preg_replace', 'preg_replace_callback', 'preg_split'] as $function) {
-            $shims .= "function $function(mixed ...\$arguments): mixed {"
-                . '    echo "PCRE: ", json_encode($arguments, JSON_INVALID_UTF8_SUBSTITUTE), "\n";'
-                . "    return \\$function(...\$arguments);"
-                . '}';
-        }
-        $shims .= '}';
-        $output = $this->parseInChildProcess($path, [], $shims);
-
-        $this->assertStringStartsWith('PCRE: ', $output);
-        $this->assertStringEndsWith(TrailingCharactersException::class, $output);
-        $this->assertStringNotContainsString('hunter2', $output);
-
-        // The replacements catch unqualified calls only: there must be no other way to PCRE in the source
+        // A warning raised inside a preg call (PCRE cannot allocate JIT memory on macOS or under SELinux) carries
+        // its arguments into the stack trace of an error handler that throws. So the parser uses no PCRE at all,
+        // and no ctype function either: what those call whitespace follows the locale.
         $source = (string) file_get_contents(dirname(__DIR__, 2) . '/src/EnvLoader.php');
-        preg_match_all('/\\\\?preg_\w+|use function|filter_var|RegexIterator/', $source, $matches);
-        $this->assertSame(['preg_replace'], $matches[0]);
+        preg_match_all(
+            '/preg_\w+|mb_ereg\w*|mb_split|mb_regex\w*|RegexIterator|filter_var|sscanf|fnmatch|ctype_\w+|setlocale|use function/i',
+            $source,
+            $matches
+        );
+
+        $this->assertSame([], $matches[0]);
     }
 
     /**
@@ -764,21 +741,18 @@ class EnvLoaderTest extends TestCase
      * Runs parse() in a child process whose error handler reports what a framework would turn into an exception.
      *
      * @param list<string> $options
-     * @param string $namespaces Namespace blocks to declare before the call
      *
-     * @return string Output of $namespaces and warnings, then the parsed values as JSON or the class of the exception
+     * @return string Warnings, then the parsed values as JSON or the class of the exception
      */
-    private function parseInChildProcess(string $path, array $options, string $namespaces = ''): string
+    private function parseInChildProcess(string $path, array $options): string
     {
-        $script = $namespaces . 'namespace {'
-            . 'require $argv[1];'
+        $script = 'require $argv[1];'
             . 'set_error_handler(function (int $level, string $message): bool {'
             . '    if ((error_reporting() & $level) !== 0) { echo "WARNING: $message\n"; }'
             . '    return true;'
             . '});'
             . 'try { echo json_encode(Sodaho\EnvLoader\EnvLoader::parse($argv[2])); }'
-            . 'catch (Throwable $e) { echo $e::class; }'
-            . '}';
+            . 'catch (Throwable $e) { echo $e::class; }';
         $process = proc_open(
             [PHP_BINARY, ...$options, '-r', $script, dirname(__DIR__, 2) . '/vendor/autoload.php', $path],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -949,21 +923,15 @@ class EnvLoaderTest extends TestCase
 
     // In a separate process: setting a locale switches PCRE to other character tables for good
     #[RunInSeparateProcess]
-    public function testWhitespaceAfterClosingQuoteFollowsTheLocale(): void
+    public function testWhitespaceAfterClosingQuoteDoesNotFollowTheLocale(): void
     {
         $path = $this->createEnvFile("TEST_A=\"v\"\xA0# comment");
 
-        // As in 1.0.0, whitespace is what PCRE's \s matches: on macOS, UTF-8 locales include the byte A0
+        // On macOS, UTF-8 locales count the byte A0 as whitespace (1.x accepted it there)
         setlocale(LC_CTYPE, 'en_US.UTF-8', 'C.UTF-8');
-        $expected = preg_match('/\s/', "\xA0") === 1 ? ['TEST_A' => 'v'] : TrailingCharactersException::class;
 
-        try {
-            $result = EnvLoader::parse($path);
-        } catch (TrailingCharactersException $e) {
-            $result = $e::class;
-        }
-
-        $this->assertSame($expected, $result);
+        $this->expectException(TrailingCharactersException::class);
+        EnvLoader::parse($path);
     }
 
     public function testLargeDoubleQuotedValue(): void

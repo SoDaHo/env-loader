@@ -449,6 +449,9 @@ final class EnvLoader
     /**
      * After the closing quote only whitespace and a comment are allowed.
      *
+     * Whitespace is ASCII whitespace in every locale, and it is skipped without a regex:
+     * a warning raised inside a PCRE call would expose its subject in the stack trace.
+     *
      * @throws Exception\TrailingCharactersException
      */
     private static function ensureOnlyCommentFollows(
@@ -458,15 +461,7 @@ final class EnvLoader
         string $key,
         string $location
     ): void {
-        $rest = substr($rest, strspn($rest, " \t\n\r\v\f"));
-
-        // Something else follows: 1.0.0 skipped whitespace with the regex \s, which follows the locale.
-        // PCRE is asked which bytes that is instead of being handed the rest of the line: a warning
-        // raised inside a PCRE call would expose its subject in the stack trace.
-        if ($rest !== '' && $rest[0] !== '#') {
-            $whitespace = (string) @preg_replace('/\S/', '', implode('', array_map('chr', range(0, 255))));
-            $rest = substr($rest, strspn($rest, $whitespace));
-        }
+        $rest = substr($rest, strspn($rest, " \t\v\f"));
 
         if ($rest !== '' && $rest[0] !== '#') {
             throw new Exception\TrailingCharactersException(
