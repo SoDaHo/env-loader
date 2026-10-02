@@ -17,6 +17,9 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - `EnvLoader` is `final`.
 - A line without `=` throws `InvalidLineException` instead of being ignored.
 - Text after a closing quote throws `TrailingCharactersException` instead of `UnterminatedQuoteException`.
+- In an unquoted value, a `#` after any whitespace starts a comment (1.x: only after a space).
+- After a closing quote, whitespace is ASCII whitespace in every locale (1.x followed the locale, which let the byte `A0` pass on macOS).
+- A form feed is whitespace around keys, values and required keys on every PHP version (1.x used the default of `trim()`, which includes it from PHP 8.6 only).
 - Line endings are recognized the same way whatever `auto_detect_line_endings` says.
 - `parse()` returns the whole file or throws `FileNotReadableException`: where a read fails, also if PHP reports the end of the file after it (an I/O error on a disk), and where a read brings no data before the file has ended. A line is never cut off there, never joined across it, and never reported as malformed for the part that was read.
 
@@ -28,8 +31,11 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - **Subclasses:** `class MyLoader extends EnvLoader { … parent::load($path); … }` (1.x) becomes `final class MyLoader { … EnvLoader::load($path); … }`: a class of your own that calls `EnvLoader::load()`, `parse()` and `format()`.
 - **Lines without `=`:** a line such as `DB_PASSWORD secret` or `export DB_HOST` was skipped (1.x) and throws `InvalidLineException` now. Add the `=`, or turn the line into a comment with `#`. In a file shared with `docker run --env-file`, a bare `DB_HOST` means "take the value from the environment": remove the line and name the key in `required`, which takes it from the process environment.
 - **Text after a closing quote:** `catch (UnterminatedQuoteException $e)` (1.x) no longer catches `KEY="value" text`; catch `TrailingCharactersException` as well, or `EnvLoaderException` for every error.
+- **Whitespace before `#`:** `KEY=value<tab>#text` was the value `value<tab>#text` (1.x) and is `value` now, the same with a vertical tab, form feed or NUL before the `#`. Write `KEY="value<tab>#text"` to keep the `#`.
 - **CR inside a line:** a value that contained a CR (1.x) ends at the CR now, and what follows is the next line: `KEY=a<CR>b` throws `InvalidLineException` for the line `b`, `KEY="a<CR>b"` throws `UnterminatedQuoteException`, `KEY=a<CR>OTHER=b` is two keys.
 - **`auto_detect_line_endings`:** with that deprecated setting switched on, a file whose first line ending is a CR was read with CR as the only line ending (1.x): `A=1<CR>B=2<LF>C` gave `B` the value `2<LF>C`. Now LF ends the line there as well, and the line `C` throws `InvalidLineException`.
+- **Form feed:** `KEY=value<FF>` was the value `value<FF>` and `<FF>KEY=value` an invalid key (1.x on PHP up to 8.5); both are `KEY` with the value `value` now.
+- **Whitespace of the locale after a closing quote:** `KEY="value"<A0># note` was accepted where the locale counts the byte `A0` as whitespace (1.x, UTF-8 locales on macOS) and throws `TrailingCharactersException` now. Use a space or a tab.
 
 ## [1.1.0] - 2026-10-02
 

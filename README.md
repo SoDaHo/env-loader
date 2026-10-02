@@ -132,11 +132,12 @@ export DB_PORT=3306
 
 Details:
 
-- **Inline comments:** in an unquoted value, a `#` preceded by a space starts a comment (`KEY= # note` is empty). A `#` after a tab or without a space is part of the value. Quote values that contain ` #` — `PASSWORD=abc #123` is read as `abc`.
-- **After a closing quote** only a comment may follow; it needs no space (`KEY="value"#note`).
+- **Inline comments:** in an unquoted value, a `#` preceded by whitespace (usually a space or a tab) starts a comment (`KEY= # note` is empty). A `#` after any other character is part of the value (`COLOR=#fff`, `KEY=a#b`). Quote values that contain ` #` — `PASSWORD=abc #123` is read as `abc`.
+- **After a closing quote** only spaces, tabs (also vertical tabs and form feeds) and a comment may follow; the comment needs no space (`KEY="value"#note`). Anything else throws.
 - **Double quotes:** only `\"` and `\\` are unescaped. Everything else stays literal, including `\n` and `\$`.
 - **Single quotes:** literal, a single-quoted value cannot contain `'`.
 - **Ignored lines:** empty lines and comment lines. Every other line has to be an assignment: a line without `=` throws.
+- **Whitespace** around keys and values, and at both ends of a line, is removed: space, tab, vertical tab, form feed and NUL, the same on every PHP version.
 - **Duplicate keys:** the last one wins.
 - **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; a UTF-8 BOM is skipped. A value cannot contain a line break.
 
@@ -172,7 +173,7 @@ try {
 | `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment |
 | `InvalidValueException` | `format()`: value is not a string, or contains a line break or NUL byte |
 
-Messages for errors in the file name the file, the line and, for quote errors, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well.
+Messages for errors in the file name the file, the line and, for quote errors, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
 
 ## Key Naming Rules
 
