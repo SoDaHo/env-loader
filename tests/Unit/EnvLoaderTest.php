@@ -800,6 +800,48 @@ class EnvLoaderTest extends TestCase
     // load(): Guarantees
     // ============================================
 
+    public function testLoadWritesOnlyToEnv(): void
+    {
+        $processEnvironment = getenv();
+        $server = $_SERVER;
+        $path = $this->createEnvFile('TEST_ONLY_ENV=value');
+
+        EnvLoader::load($path, overwrite: true);
+
+        $this->assertSame('value', $_ENV['TEST_ONLY_ENV']);
+        $this->assertSame($processEnvironment, getenv());
+        $this->assertSame($server, $_SERVER);
+    }
+
+    public function testLoadReturnsNothing(): void
+    {
+        // A return value would break subclasses that override load(): void
+        $returnType = (new \ReflectionMethod(EnvLoader::class, 'load'))->getReturnType();
+
+        $this->assertSame('void', (string) $returnType);
+    }
+
+    public function testParseLeavesEnvUntouched(): void
+    {
+        $_ENV = ['TEST_EXISTING' => 'original'];
+        $processEnvironment = getenv();
+        $server = $_SERVER;
+
+        EnvLoader::parse($this->createEnvFile("TEST_EXISTING=new\nTEST_OTHER=value"));
+
+        $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        $this->assertSame($processEnvironment, getenv());
+        $this->assertSame($server, $_SERVER);
+    }
+
+    public function testDoesNotOverwriteExistingEmptyValue(): void
+    {
+        $_ENV['TEST_EXISTING_EMPTY'] = '';
+        EnvLoader::load($this->createEnvFile('TEST_EXISTING_EMPTY=new'));
+
+        $this->assertSame('', $_ENV['TEST_EXISTING_EMPTY']);
+    }
+
     public function testMissingRequiredKeyLeavesEnvUntouched(): void
     {
         $_ENV = ['TEST_EXISTING' => 'original'];
@@ -814,6 +856,19 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    public function testParseErrorLeavesEnvUntouched(): void
+    {
+        $_ENV = ['TEST_EXISTING' => 'original'];
+        $path = $this->createEnvFile("TEST_OTHER=value\nTEST_BROKEN=\"unterminated");
+
+        try {
+            EnvLoader::load($path, overwrite: true);
+            $this->fail('Expected UnterminatedQuoteException');
+        } catch (UnterminatedQuoteException) {
+            $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
+    }
+
     public function testRequiredKeyMayComeFromExistingEnv(): void
     {
         $_ENV['TEST_FROM_ENV'] = 'preset';
@@ -821,6 +876,14 @@ class EnvLoaderTest extends TestCase
         EnvLoader::load($path, required: ['TEST_FROM_ENV', 'TEST_FROM_FILE']);
 
         $this->assertSame('value', $_ENV['TEST_FROM_FILE']);
+    }
+
+    public function testRequiredKeyMayBeEmpty(): void
+    {
+        $path = $this->createEnvFile('TEST_EMPTY_REQUIRED=');
+        EnvLoader::load($path, required: ['TEST_EMPTY_REQUIRED']);
+
+        $this->assertSame('', $_ENV['TEST_EMPTY_REQUIRED']);
     }
 
     public function testRequiredKeysAsStringAreTrimmed(): void
