@@ -485,6 +485,16 @@ class EnvLoaderTest extends TestCase
         $this->assertSame(['preg_replace'], $matches[0]);
     }
 
+    public function testEmptyLinesCostNoMemory(): void
+    {
+        $path = $this->createEnvFile(str_repeat("\n", 400_000) . 'TEST_KEY=value');
+
+        // An array of all lines would need more than the 16 MB the child process gets
+        $output = $this->parseInChildProcess($path, ['-d', 'memory_limit=16M']);
+
+        $this->assertSame('{"TEST_KEY":"value"}', $output);
+    }
+
     /**
      * Runs parse() in a child process whose error handler reports what a framework would turn into an exception.
      *
@@ -598,6 +608,9 @@ class EnvLoaderTest extends TestCase
             'tab and hash after equals is a value' => ["TEST_A=\t#fff", ['TEST_A' => '#fff']],
             'first space-hash starts the comment' => ['TEST_A=one # two # three', ['TEST_A' => 'one']],
             'trailing space-hash' => ['TEST_A=value #', ['TEST_A' => 'value']],
+            'comment line containing =' => ["# TEST_OFF=1\nTEST_A=1", ['TEST_A' => '1']],
+            'indented comment line containing =' => ["   # TEST_OFF=1\nTEST_A=1", ['TEST_A' => '1']],
+            'whitespace-only line' => ["TEST_A=1\n \t \nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
             'comment directly after double quote' => ['TEST_A="v"#c', ['TEST_A' => 'v']],
             'comment after single quote' => ["TEST_A='v' # c", ['TEST_A' => 'v']],
             'any whitespace between quote and comment' => ["TEST_A=\"v\" \t\r\v\f# c", ['TEST_A' => 'v']],
@@ -608,9 +621,20 @@ class EnvLoaderTest extends TestCase
             'empty single-quoted value' => ["TEST_A=''", ['TEST_A' => '']],
             'quotes keep surrounding spaces' => ['TEST_A="  v  "', ['TEST_A' => '  v  ']],
             'whitespace before quoted value' => ["TEST_A= \t\"v\"", ['TEST_A' => 'v']],
+            'quotes inside unquoted value' => ['TEST_A=ab"c\'d', ['TEST_A' => 'ab"c\'d']],
             'escaped backslash before closing quote' => ['TEST_A="a\\\\"', ['TEST_A' => 'a\\']],
             'backslash in single quotes' => ["TEST_A='a\\\\b\\\"'", ['TEST_A' => 'a\\\\b\\"']],
+            'no variable expansion' => [
+                "TEST_A=1\nTEST_B=\${TEST_A}/\$TEST_A\nTEST_C=\"\${TEST_A}\"",
+                ['TEST_A' => '1', 'TEST_B' => '${TEST_A}/$TEST_A', 'TEST_C' => '${TEST_A}'],
+            ],
             'escaped dollar stays literal' => ['TEST_A="pa\\$word"', ['TEST_A' => 'pa\\$word']],
+            'duplicate key: last one wins' => ["TEST_A=1\nTEST_B=2\nTEST_A=3", ['TEST_A' => '3', 'TEST_B' => '2']],
+            'CRLF line endings' => [
+                "TEST_A=1\r\nTEST_B=\"x y\"\r\n\r\nTEST_C='z'\r\n",
+                ['TEST_A' => '1', 'TEST_B' => 'x y', 'TEST_C' => 'z'],
+            ],
+            'BOM with CRLF' => ["\xEF\xBB\xBFTEST_A=1\r\nTEST_B=2\r\n", ['TEST_A' => '1', 'TEST_B' => '2']],
             'BOM after empty lines' => ["\n\r\n\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
             'export followed by tab' => ["export\tTEST_A=1", ['TEST_A' => '1']],
             'export followed by several spaces' => ['export   TEST_A=1', ['TEST_A' => '1']],
@@ -620,6 +644,7 @@ class EnvLoaderTest extends TestCase
             'key named export with tab and NUL before =' => ["export\t\0=1", ['export' => '1']],
             'key starting with export' => ['exportTEST=1', ['exportTEST' => '1']],
             'export without assignment is ignored' => ["export TEST_A\nTEST_B=1", ['TEST_B' => '1']],
+            'lowercase letters and digits in key' => ['test_a1=1', ['test_a1' => '1']],
         ];
     }
 
