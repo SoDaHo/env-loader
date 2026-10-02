@@ -428,6 +428,21 @@ class EnvLoaderTest extends TestCase
         $this->assertSame(FileNotFoundException::class, $output);
     }
 
+    public function testReadFailureAfterTheFirstLineThrows(): void
+    {
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+
+        try {
+            EnvLoader::parse($scheme . '://env');
+            $this->fail('Expected FileNotReadableException');
+        } catch (FileNotReadableException $e) {
+            $this->assertSame("Could not read file: $scheme://env", $e->getMessage());
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
     /**
      * Runs parse() in a child process whose error handler reports what a framework would turn into an exception.
      *

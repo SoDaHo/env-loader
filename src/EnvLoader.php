@@ -110,6 +110,12 @@ class EnvLoader
                     $result[$key] = $value;
                 }
             }
+
+            // fgets() also returns false when reading fails. Where the stream reports that instead of
+            // the end of the file, a partly read file must not pass as complete.
+            if (!feof($handle)) {
+                throw new Exception\FileNotReadableException("Could not read file: $path");
+            }
         } finally {
             @fclose($handle);
         }
