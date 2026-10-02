@@ -72,4 +72,4 @@ composer test:coverage
 3. Run `composer ci` - all checks must pass
 4. Submit PR against the `2.x` branch (2.0) or `main` (1.x)
 
-CI will automatically run tests, static analysis, and code style checks on PHP 8.5.
+CI will automatically run tests, static analysis, and code style checks on PHP 8.5. The tests also run on the pre-release of PHP 8.6; a failure there does not fail the run.
