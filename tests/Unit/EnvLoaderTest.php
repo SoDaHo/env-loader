@@ -400,22 +400,36 @@ class EnvLoaderTest extends TestCase
 
     public function testThrowsFileNotReadableException(): void
     {
-        if (PHP_OS_FAMILY === 'Windows') {
-            $this->markTestSkipped('chmod not supported on Windows');
-        }
-
-        if (function_exists('posix_getuid') && posix_getuid() === 0) {
-            $this->markTestSkipped('Root can read any file regardless of permissions');
-        }
-
         $path = $this->createEnvFile('TEST_KEY=value');
         chmod($path, 0o000);
 
-        $this->expectException(FileNotReadableException::class);
+        // A privileged user (root in CI containers) reads the file anyway: read it as "nobody" instead.
+        // Then only the read itself fails: is_readable() checks the real user, not the effective one.
+        $privileged = @file_get_contents($path) !== false;
+        $user = null;
 
         try {
+            if ($privileged) {
+                chmod($this->tempDir, 0o755);
+                $nobody = function_exists('posix_getpwnam') ? posix_getpwnam('nobody') : false;
+                if ($nobody === false) {
+                    $this->markTestSkipped('File is readable despite chmod 000, and privileges cannot be dropped');
+                }
+
+                $user = posix_geteuid();
+                if (!posix_seteuid($nobody['uid']) || !is_file($path)) {
+                    $this->markTestSkipped('Cannot read the file as an unprivileged user');
+                }
+            }
+
             EnvLoader::load($path);
+            $this->fail('Expected FileNotReadableException');
+        } catch (FileNotReadableException $e) {
+            $this->assertSame(($privileged ? 'Could not read file: ' : 'File not readable: ') . $path, $e->getMessage());
         } finally {
+            if ($user !== null) {
+                $this->assertTrue(posix_seteuid($user), 'Privileges could not be restored');
+            }
             chmod($path, 0o644); // Restore for cleanup
         }
     }
