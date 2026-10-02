@@ -443,6 +443,44 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    public function testPcreWarningDoesNotReachTheErrorHandler(): void
+    {
+        $path = $this->createEnvFile('TEST_QUOTED="value" tail');
+
+        // Where PCRE cannot allocate JIT memory (macOS, SELinux), the first preg call of a process warns.
+        // Elsewhere this passes without proving anything.
+        $output = $this->parseInChildProcess($path, ['-d', 'pcre.jit=1']);
+
+        $this->assertSame(UnterminatedQuoteException::class, $output);
+    }
+
+    public function testPcreNeverSeesFileContent(): void
+    {
+        $path = $this->createEnvFile("export TEST_KEY=hunter2\nTEST_QUOTED=\"hunter2\" # hunter2\nTEST_BROKEN=\"hunter2\" hunter2");
+
+        // A warning raised inside a preg call carries its arguments into the stack trace of an error handler
+        // that throws. The child process therefore replaces the preg functions EnvLoader could call by
+        // ones that print their arguments.
+        $shims = 'namespace Sodaho\EnvLoader {';
+        foreach (['preg_match', 'preg_match_all', 'preg_replace', 'preg_replace_callback', 'preg_split'] as $function) {
+            $shims .= "function $function(mixed ...\$arguments): mixed {"
+                . '    echo "PCRE: ", json_encode($arguments, JSON_INVALID_UTF8_SUBSTITUTE), "\n";'
+                . "    return \\$function(...\$arguments);"
+                . '}';
+        }
+        $shims .= '}';
+        $output = $this->parseInChildProcess($path, [], $shims);
+
+        $this->assertStringStartsWith('PCRE: ', $output);
+        $this->assertStringEndsWith(UnterminatedQuoteException::class, $output);
+        $this->assertStringNotContainsString('hunter2', $output);
+
+        // The replacements catch unqualified calls only: there must be no other way to PCRE in the source
+        $source = (string) file_get_contents(dirname(__DIR__, 2) . '/src/EnvLoader.php');
+        preg_match_all('/\\\\?preg_\w+|use function|filter_var|RegexIterator/', $source, $matches);
+        $this->assertSame(['preg_replace'], $matches[0]);
+    }
+
     /**
      * Runs parse() in a child process whose error handler reports what a framework would turn into an exception.
      *
@@ -556,6 +594,19 @@ class EnvLoaderTest extends TestCase
             'tab and hash after equals is a value' => ["TEST_A=\t#fff", ['TEST_A' => '#fff']],
             'first space-hash starts the comment' => ['TEST_A=one # two # three', ['TEST_A' => 'one']],
             'trailing space-hash' => ['TEST_A=value #', ['TEST_A' => 'value']],
+            'comment directly after double quote' => ['TEST_A="v"#c', ['TEST_A' => 'v']],
+            'comment after single quote' => ["TEST_A='v' # c", ['TEST_A' => 'v']],
+            'any whitespace between quote and comment' => ["TEST_A=\"v\" \t\r\v\f# c", ['TEST_A' => 'v']],
+            'comment directly after single quote' => ["TEST_A='v'#c", ['TEST_A' => 'v']],
+            'double quotes in comment after double-quoted value' => ['TEST_A="a" # "b"', ['TEST_A' => 'a']],
+            'single quotes in comment after single-quoted value' => ["TEST_A='a' # 'b'", ['TEST_A' => 'a']],
+            'empty double-quoted value' => ['TEST_A=""', ['TEST_A' => '']],
+            'empty single-quoted value' => ["TEST_A=''", ['TEST_A' => '']],
+            'quotes keep surrounding spaces' => ['TEST_A="  v  "', ['TEST_A' => '  v  ']],
+            'whitespace before quoted value' => ["TEST_A= \t\"v\"", ['TEST_A' => 'v']],
+            'escaped backslash before closing quote' => ['TEST_A="a\\\\"', ['TEST_A' => 'a\\']],
+            'backslash in single quotes' => ["TEST_A='a\\\\b\\\"'", ['TEST_A' => 'a\\\\b\\"']],
+            'escaped dollar stays literal' => ['TEST_A="pa\\$word"', ['TEST_A' => 'pa\\$word']],
             'BOM after empty lines' => ["\n\r\n\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
             'export followed by tab' => ["export\tTEST_A=1", ['TEST_A' => '1']],
             'export followed by several spaces' => ['export   TEST_A=1', ['TEST_A' => '1']],
@@ -596,6 +647,31 @@ class EnvLoaderTest extends TestCase
         $this->assertSame($expected, $result);
     }
 
+    public function testLargeDoubleQuotedValue(): void
+    {
+        // Larger than the PCRE limits (8 KB with JIT, 50 KB without) that once made this fail
+        $value = str_repeat('a', 200_000);
+        $result = EnvLoader::parse($this->createEnvFile('TEST_BIG="' . $value . '" # comment'));
+
+        $this->assertSame(['TEST_BIG' => $value], $result);
+    }
+
+    public function testLargeDoubleQuotedValueWithEscapes(): void
+    {
+        $path = $this->createEnvFile('TEST_BIG="' . str_repeat('\\"x\\\\\\n', 50_000) . '"');
+        $result = EnvLoader::parse($path);
+
+        $this->assertSame(['TEST_BIG' => str_repeat('"x\\\\n', 50_000)], $result);
+    }
+
+    public function testLargeSingleQuotedValue(): void
+    {
+        $value = str_repeat('a', 200_000);
+        $result = EnvLoader::parse($this->createEnvFile("TEST_BIG='" . $value . "'"));
+
+        $this->assertSame(['TEST_BIG' => $value], $result);
+    }
+
     // ============================================
     // Error Messages
     // ============================================
@@ -611,6 +687,10 @@ class EnvLoaderTest extends TestCase
             'backslash as last character' => ['TEST_KEY="hunter2\\', 'Unterminated double quote'],
             'escaped closing quote' => ['TEST_KEY="hunter2\\"', 'Unterminated double quote'],
             'multiline value' => ["TEST_KEY=\"hunter2\ntail\"", 'Unterminated double quote'],
+            'text after double quote' => ['TEST_KEY="hunter2" tail', 'Unexpected characters after closing double quote'],
+            'text directly after double quote' => ['TEST_KEY="hunter2"tail', 'Unexpected characters after closing double quote'],
+            'text after single quote' => ["TEST_KEY='hunter2' tail", 'Unexpected characters after closing single quote'],
+            'doubled single quote' => ["TEST_KEY='hunter2''tail'", 'Unexpected characters after closing single quote'],
         ];
     }
 

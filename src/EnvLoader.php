@@ -191,24 +191,12 @@ class EnvLoader
     ): string {
         $trimmed = trim($value);
 
-        // Double quoted: allow only non-quote/non-backslash chars or escape sequences
         if (str_starts_with($trimmed, '"')) {
-            if (preg_match('/^"((?:[^"\\\\]|\\\\.)*)"\s*(#.*)?$/', $trimmed, $matches)) {
-                return self::unescapeDoubleQuoted($matches[1]);
-            }
-            throw new Exception\UnterminatedQuoteException(
-                "Unterminated double quote for key \"$key\" in $location"
-            );
+            return self::parseDoubleQuoted($trimmed, $key, $location);
         }
 
-        // Single quoted: no escape processing, no single quotes inside
         if (str_starts_with($trimmed, "'")) {
-            if (preg_match("/^'([^']*)'\s*(#.*)?$/", $trimmed, $matches)) {
-                return $matches[1];
-            }
-            throw new Exception\UnterminatedQuoteException(
-                "Unterminated single quote for key \"$key\" in $location"
-            );
+            return self::parseSingleQuoted($trimmed, $key, $location);
         }
 
         // Unquoted - remove inline comment. Scan the untrimmed value: "KEY= # comment" is empty
@@ -223,16 +211,98 @@ class EnvLoader
     /**
      * Only unescapes \\ and \" — other sequences like \n are preserved
      * literally to prevent data corruption with Windows paths.
+     *
+     * Scans linearly instead of using a regex: PCRE limits made large
+     * values fail as "unterminated".
+     *
+     * @throws Exception\UnterminatedQuoteException
      */
-    private static function unescapeDoubleQuoted(#[\SensitiveParameter] string $value): string
-    {
-        return preg_replace_callback(
-            '/\\\\(.)/',
-            fn (array $m): string => match ($m[1]) {
-                '\\', '"' => $m[1],
-                default => '\\' . $m[1],
-            },
-            $value
-        ) ?? $value;
+    private static function parseDoubleQuoted(
+        #[\SensitiveParameter]
+        string $value,
+        string $key,
+        string $location
+    ): string {
+        $length = strlen($value);
+        $result = '';
+        $pos = 1;
+
+        while (true) {
+            $span = strcspn($value, '"\\', $pos);
+            $result .= substr($value, $pos, $span);
+            $pos += $span;
+
+            // No closing quote, or a backslash as last character
+            if ($pos >= $length || ($value[$pos] === '\\' && $pos + 1 >= $length)) {
+                throw new Exception\UnterminatedQuoteException(
+                    "Unterminated double quote for key \"$key\" in $location"
+                );
+            }
+
+            if ($value[$pos] === '"') {
+                break;
+            }
+
+            $escaped = $value[$pos + 1];
+            $result .= $escaped === '"' || $escaped === '\\' ? $escaped : '\\' . $escaped;
+            $pos += 2;
+        }
+
+        self::ensureOnlyCommentFollows(substr($value, $pos + 1), 'double', $key, $location);
+
+        return $result;
+    }
+
+    /**
+     * No escape processing, no single quotes inside.
+     *
+     * @throws Exception\UnterminatedQuoteException
+     */
+    private static function parseSingleQuoted(
+        #[\SensitiveParameter]
+        string $value,
+        string $key,
+        string $location
+    ): string {
+        $end = strpos($value, "'", 1);
+
+        if ($end === false) {
+            throw new Exception\UnterminatedQuoteException(
+                "Unterminated single quote for key \"$key\" in $location"
+            );
+        }
+
+        self::ensureOnlyCommentFollows(substr($value, $end + 1), 'single', $key, $location);
+
+        return substr($value, 1, $end - 1);
+    }
+
+    /**
+     * After the closing quote only whitespace and a comment are allowed.
+     *
+     * @throws Exception\UnterminatedQuoteException
+     */
+    private static function ensureOnlyCommentFollows(
+        #[\SensitiveParameter]
+        string $rest,
+        string $quote,
+        string $key,
+        string $location
+    ): void {
+        $rest = substr($rest, strspn($rest, " \t\n\r\v\f"));
+
+        // Something else follows: 1.0.0 skipped whitespace with the regex \s, which follows the locale.
+        // PCRE is asked which bytes that is instead of being handed the rest of the line: a warning
+        // raised inside a PCRE call would expose its subject in the stack trace.
+        if ($rest !== '' && $rest[0] !== '#') {
+            $whitespace = (string) @preg_replace('/\S/', '', implode('', array_map('chr', range(0, 255))));
+            $rest = substr($rest, strspn($rest, $whitespace));
+        }
+
+        if ($rest !== '' && $rest[0] !== '#') {
+            throw new Exception\UnterminatedQuoteException(
+                "Unexpected characters after closing $quote quote for key \"$key\" in $location"
+            );
+        }
     }
 }
