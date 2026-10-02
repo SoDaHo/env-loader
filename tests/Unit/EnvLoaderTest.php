@@ -14,6 +14,7 @@ use Sodaho\EnvLoader\Exception\EnvLoaderException;
 use Sodaho\EnvLoader\Exception\FileNotFoundException;
 use Sodaho\EnvLoader\Exception\FileNotReadableException;
 use Sodaho\EnvLoader\Exception\InvalidKeyException;
+use Sodaho\EnvLoader\Exception\InvalidLineException;
 use Sodaho\EnvLoader\Exception\InvalidValueException;
 use Sodaho\EnvLoader\Exception\MissingRequiredKeyException;
 use Sodaho\EnvLoader\Exception\UnterminatedQuoteException;
@@ -130,15 +131,6 @@ class EnvLoaderTest extends TestCase
         EnvLoader::load($path);
 
         $this->assertSame('val=ue=with=equals', $_ENV['TEST_PASSWORD']);
-    }
-
-    public function testIgnoresLineWithoutEquals(): void
-    {
-        $path = $this->createEnvFile("INVALID_LINE\nTEST_VALID=value");
-        EnvLoader::load($path);
-
-        $this->assertSame('value', $_ENV['TEST_VALID']);
-        $this->assertArrayNotHasKey('INVALID_LINE', $_ENV);
     }
 
     public function testUnderscoreStartKeyIsValid(): void
@@ -680,7 +672,6 @@ class EnvLoaderTest extends TestCase
             'key named export with two spaces before =' => ['export  =1', ['export' => '1']],
             'key named export with tab and NUL before =' => ["export\t\0=1", ['export' => '1']],
             'key starting with export' => ['exportTEST=1', ['exportTEST' => '1']],
-            'export without assignment is ignored' => ["export TEST_A\nTEST_B=1", ['TEST_B' => '1']],
             'lowercase letters and digits in key' => ['test_a1=1', ['test_a1' => '1']],
         ];
     }
@@ -818,6 +809,55 @@ class EnvLoaderTest extends TestCase
             $this->assertStringNotContainsString('hunter2', $arguments);
         } finally {
             ini_set('zend.exception_ignore_args', (string) $traceArguments);
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function lineWithoutEqualsProvider(): array
+    {
+        return [
+            'key and value separated by a space' => ['TEST_KEY hunter2'],
+            'key alone' => ['hunter2'],
+            'export without assignment' => ['export hunter2'],
+            'export alone' => ['export'],
+            'quoted text' => ['"hunter2"'],
+            'colon instead of equals' => ['TEST_KEY: hunter2'],
+        ];
+    }
+
+    #[DataProvider('lineWithoutEqualsProvider')]
+    public function testLineWithoutEqualsThrowsAndNamesOnlyTheLine(string $line): void
+    {
+        $path = $this->createEnvFile("TEST_FIRST=1\r\n\r\n" . $line . "\nTEST_LAST=1");
+        $lineNumber = 3 + substr_count($line, "\r");
+        $traceArguments = ini_set('zend.exception_ignore_args', '0');
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidLineException');
+        } catch (InvalidLineException $e) {
+            $this->assertSame("Missing \"=\" in $path on line $lineNumber", $e->getMessage());
+
+            $arguments = $this->traceArguments($e);
+            $this->assertStringContainsString($path, $arguments);
+            $this->assertStringNotContainsString('hunter2', $arguments);
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $traceArguments);
+        }
+    }
+
+    public function testLineWithoutEqualsLeavesEnvUntouched(): void
+    {
+        $_ENV = ['TEST_EXISTING' => 'original'];
+        $path = $this->createEnvFile("TEST_OTHER=value\nTEST_FORGOTTEN value");
+
+        try {
+            EnvLoader::load($path, overwrite: true);
+            $this->fail('Expected InvalidLineException');
+        } catch (InvalidLineException) {
+            $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
         }
     }
 

@@ -18,6 +18,7 @@ final class EnvLoader
      *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
+     * @throws Exception\InvalidLineException
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\MissingRequiredKeyException
@@ -95,6 +96,7 @@ final class EnvLoader
      *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
+     * @throws Exception\InvalidLineException
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      *
@@ -216,6 +218,7 @@ final class EnvLoader
     /**
      * @param string $location File and line for error messages - messages never contain file content
      *
+     * @throws Exception\InvalidLineException
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      *
@@ -225,8 +228,8 @@ final class EnvLoader
     {
         $line = trim($line);
 
-        // Skip comments
-        if (str_starts_with($line, '#')) {
+        // Skip empty lines and comments
+        if ($line === '' || str_starts_with($line, '#')) {
             return null;
         }
 
@@ -239,10 +242,10 @@ final class EnvLoader
             }
         }
 
-        // Skip empty lines and lines without =
+        // Anything else has to be an assignment: a forgotten "=" must not make a key vanish
         $pos = strpos($line, '=');
         if ($pos === false) {
-            return null;
+            throw new Exception\InvalidLineException("Missing \"=\" in $location");
         }
 
         // Split only on first =
