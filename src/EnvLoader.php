@@ -135,35 +135,31 @@ class EnvLoader
      */
     private static function parseValue(string $value): string
     {
-        $value = trim($value);
-
-        if ($value === '') {
-            return '';
-        }
+        $trimmed = trim($value);
 
         // Double quoted: allow only non-quote/non-backslash chars or escape sequences
-        if (str_starts_with($value, '"')) {
-            if (preg_match('/^"((?:[^"\\\\]|\\\\.)*)"\s*(#.*)?$/', $value, $matches)) {
+        if (str_starts_with($trimmed, '"')) {
+            if (preg_match('/^"((?:[^"\\\\]|\\\\.)*)"\s*(#.*)?$/', $trimmed, $matches)) {
                 return self::unescapeDoubleQuoted($matches[1]);
             }
-            throw new Exception\UnterminatedQuoteException("Unterminated double quote: $value");
+            throw new Exception\UnterminatedQuoteException("Unterminated double quote: $trimmed");
         }
 
         // Single quoted: no escape processing, no single quotes inside
-        if (str_starts_with($value, "'")) {
-            if (preg_match("/^'([^']*)'\s*(#.*)?$/", $value, $matches)) {
+        if (str_starts_with($trimmed, "'")) {
+            if (preg_match("/^'([^']*)'\s*(#.*)?$/", $trimmed, $matches)) {
                 return $matches[1];
             }
-            throw new Exception\UnterminatedQuoteException("Unterminated single quote: $value");
+            throw new Exception\UnterminatedQuoteException("Unterminated single quote: $trimmed");
         }
 
-        // Unquoted - remove inline comment
+        // Unquoted - remove inline comment. Scan the untrimmed value: "KEY= # comment" is empty
         $commentPos = strpos($value, ' #');
         if ($commentPos !== false) {
-            $value = trim(substr($value, 0, $commentPos));
+            $value = substr($value, 0, $commentPos);
         }
 
-        return $value;
+        return trim($value);
     }
 
     /**

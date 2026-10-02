@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Sodaho\EnvLoader\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Sodaho\EnvLoader\EnvLoader;
 use Sodaho\EnvLoader\Exception\FileNotFoundException;
@@ -460,5 +462,54 @@ class EnvLoaderTest extends TestCase
         $path = $this->createEnvFile('TEST_KEY="unterminated');
         $this->expectException(UnterminatedQuoteException::class);
         EnvLoader::parse($path);
+    }
+
+    // ============================================
+    // Syntax Details
+    // ============================================
+
+    /**
+     * @return array<string, array{string, array<string, string>}>
+     */
+    public static function syntaxProvider(): array
+    {
+        return [
+            'empty value followed by comment' => ['TEST_A= # comment', ['TEST_A' => '']],
+            'empty value, several spaces, comment' => ['TEST_A=   # comment', ['TEST_A' => '']],
+            'empty value followed by bare hash' => ['TEST_A= #', ['TEST_A' => '']],
+            'hash directly after equals is a value' => ['TEST_A=#fff', ['TEST_A' => '#fff']],
+            'tab before hash is not a comment' => ["TEST_A=value\t# text", ['TEST_A' => "value\t# text"]],
+            'tab and hash after equals is a value' => ["TEST_A=\t#fff", ['TEST_A' => '#fff']],
+            'first space-hash starts the comment' => ['TEST_A=one # two # three', ['TEST_A' => 'one']],
+            'trailing space-hash' => ['TEST_A=value #', ['TEST_A' => 'value']],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $expected
+     */
+    #[DataProvider('syntaxProvider')]
+    public function testParsesSyntax(string $content, array $expected): void
+    {
+        $this->assertSame($expected, EnvLoader::parse($this->createEnvFile($content)));
+    }
+
+    // In a separate process: setting a locale switches PCRE to other character tables for good
+    #[RunInSeparateProcess]
+    public function testWhitespaceAfterClosingQuoteFollowsTheLocale(): void
+    {
+        $path = $this->createEnvFile("TEST_A=\"v\"\xA0# comment");
+
+        // As in 1.0.0, whitespace is what PCRE's \s matches: on macOS, UTF-8 locales include the byte A0
+        setlocale(LC_CTYPE, 'en_US.UTF-8', 'C.UTF-8');
+        $expected = preg_match('/\s/', "\xA0") === 1 ? ['TEST_A' => 'v'] : UnterminatedQuoteException::class;
+
+        try {
+            $result = EnvLoader::parse($path);
+        } catch (UnterminatedQuoteException $e) {
+            $result = $e::class;
+        }
+
+        $this->assertSame($expected, $result);
     }
 }
