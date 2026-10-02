@@ -410,6 +410,10 @@ class EnvLoaderTest extends TestCase
 
         try {
             if ($privileged) {
+                // Load the classes first: "nobody" may not be allowed to read the source files
+                class_exists(EnvLoader::class);
+                class_exists(FileNotReadableException::class);
+
                 chmod($this->tempDir, 0o755);
                 $nobody = function_exists('posix_getpwnam') ? posix_getpwnam('nobody') : false;
                 if ($nobody === false) {
