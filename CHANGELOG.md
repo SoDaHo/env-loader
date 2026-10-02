@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-02
+
 ### Added
 - `format()` returns key-value pairs as .env content that `parse()` reads back unchanged.
 - `InvalidValueException` for values `format()` cannot write (line break, NUL byte, not a string).
@@ -39,5 +41,6 @@
 - PHPStan level 9 static analysis.
 - GitHub Actions CI for PHP 8.2, 8.3, 8.4, 8.5.
 
-[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/SoDaHo/env-loader/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SoDaHo/env-loader/releases/tag/v1.0.0
