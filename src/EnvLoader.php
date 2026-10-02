@@ -22,21 +22,22 @@ class EnvLoader
     ): void {
         $values = self::parse($path);
 
-        foreach ($values as $key => $value) {
-            if ($overwrite || !array_key_exists($key, $_ENV)) {
-                $_ENV[$key] = $value;
-            }
-        }
-
         // Handle required keys - normalize to array
         if (is_string($required)) {
             $required = explode(',', $required);
         }
         $required = array_filter(array_map('trim', $required), fn ($key) => $key !== '');
 
+        // Check before writing, so a failed load leaves $_ENV untouched
         foreach ($required as $key) {
-            if (!array_key_exists($key, $_ENV)) {
+            if (!array_key_exists($key, $values) && !array_key_exists($key, $_ENV)) {
                 throw new Exception\MissingRequiredKeyException("Missing required key: $key");
+            }
+        }
+
+        foreach ($values as $key => $value) {
+            if ($overwrite || !array_key_exists($key, $_ENV)) {
+                $_ENV[$key] = $value;
             }
         }
     }

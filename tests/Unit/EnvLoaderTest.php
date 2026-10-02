@@ -525,6 +525,29 @@ class EnvLoaderTest extends TestCase
     // load(): Guarantees
     // ============================================
 
+    public function testMissingRequiredKeyLeavesEnvUntouched(): void
+    {
+        $_ENV = ['TEST_EXISTING' => 'original'];
+        $path = $this->createEnvFile("TEST_EXISTING=new\nTEST_OTHER=value");
+
+        try {
+            EnvLoader::load($path, overwrite: true, required: ['TEST_OTHER', 'TEST_MISSING']);
+            $this->fail('Expected MissingRequiredKeyException');
+        } catch (MissingRequiredKeyException $e) {
+            $this->assertSame('Missing required key: TEST_MISSING', $e->getMessage());
+            $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
+    }
+
+    public function testRequiredKeyMayComeFromExistingEnv(): void
+    {
+        $_ENV['TEST_FROM_ENV'] = 'preset';
+        $path = $this->createEnvFile('TEST_FROM_FILE=value');
+        EnvLoader::load($path, required: ['TEST_FROM_ENV', 'TEST_FROM_FILE']);
+
+        $this->assertSame('value', $_ENV['TEST_FROM_FILE']);
+    }
+
     public function testRequiredKeysAsStringAreTrimmed(): void
     {
         $path = $this->createEnvFile("TEST_SPACE_ONE=one\nTEST_SPACE_TWO=two");
