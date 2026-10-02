@@ -136,7 +136,7 @@ Details:
 - **After a closing quote** only a comment may follow; it needs no space (`KEY="value"#note`).
 - **Double quotes:** only `\"` and `\\` are unescaped. Everything else stays literal, including `\n` and `\$`.
 - **Single quotes:** literal, a single-quoted value cannot contain `'`.
-- **Ignored lines:** empty lines, comment lines and lines without `=`.
+- **Ignored lines:** empty lines and comment lines. Every other line has to be an assignment: a line without `=` throws.
 - **Duplicate keys:** the last one wins.
 - **Files:** LF or CRLF line endings, a UTF-8 BOM is skipped.
 
@@ -165,8 +165,10 @@ try {
 |-----------|------|
 | `FileNotFoundException` | File does not exist or is a directory |
 | `FileNotReadableException` | File exists but cannot be read |
+| `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
-| `UnterminatedQuoteException` | Quoted value missing closing quote, or text other than a comment after it |
+| `UnterminatedQuoteException` | Quoted value missing closing quote |
+| `TrailingCharactersException` | Text other than a comment after the closing quote |
 | `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment |
 | `InvalidValueException` | `format()`: value is not a string, or contains a line break or NUL byte |
 

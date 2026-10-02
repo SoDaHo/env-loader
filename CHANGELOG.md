@@ -6,12 +6,16 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 
 ### Added
 - `load()` returns the values of the file, as `parse()` does — also those the environment has overruled.
+- `InvalidLineException` for a line that is neither empty, a comment nor an assignment.
+- `TrailingCharactersException` for text after a closing quote.
 
 ### Changed
 - PHP `^8.5` is required (1.x: `^8.2`). CI also runs the tests on the pre-release of PHP 8.6.
 - Without `overwrite`, the process environment wins over the file: a key that is not in `$_ENV` but set in the environment of the PHP process (`getenv($key, true)`) takes that value instead of the one from the file. The value is copied into `$_ENV`. What the web server passes with a request (FastCGI parameters, request headers) is not read; under plain CGI, where the request is the process environment, and where `getenv()` is disabled, the process environment is not read at all.
 - `required` accepts a key that only the process environment defines, and copies it into `$_ENV`.
 - `EnvLoader` is `final`.
+- A line without `=` throws `InvalidLineException` instead of being ignored.
+- Text after a closing quote throws `TrailingCharactersException` instead of `UnterminatedQuoteException`.
 
 ### Upgrading from 1.x
 - **PHP version:** `"sodaho/env-loader": "^1.1"` runs on PHP `^8.2`, `"^2.0"` needs PHP `^8.5`. Stay on `^1.1` until the application runs on PHP 8.5.
@@ -19,6 +23,8 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - **Required keys:** `EnvLoader::load('.env', required: ['TOKEN']);` threw `MissingRequiredKeyException` when only the process environment had `TOKEN` (1.x); it passes now and copies `TOKEN` into `$_ENV`.
 - **Values of the file:** `load()` returned nothing (1.x) and returns the values of the file now: `EnvLoader::load($path); $file = EnvLoader::parse($path);` becomes `$file = EnvLoader::load($path);`.
 - **Subclasses:** `class MyLoader extends EnvLoader { … parent::load($path); … }` (1.x) becomes `final class MyLoader { … EnvLoader::load($path); … }`: a class of your own that calls `EnvLoader::load()`, `parse()` and `format()`.
+- **Lines without `=`:** a line such as `DB_PASSWORD secret` or `export DB_HOST` was skipped (1.x) and throws `InvalidLineException` now. Add the `=`, or turn the line into a comment with `#`. In a file shared with `docker run --env-file`, a bare `DB_HOST` means "take the value from the environment": remove the line and name the key in `required`, which takes it from the process environment.
+- **Text after a closing quote:** `catch (UnterminatedQuoteException $e)` (1.x) no longer catches `KEY="value" text`; catch `TrailingCharactersException` as well, or `EnvLoaderException` for every error.
 
 ## [1.1.0] - 2026-10-02
 
