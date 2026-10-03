@@ -1202,9 +1202,13 @@ class EnvLoaderTest extends TestCase
             $this->assertSame(['TEST_A' => '1', 'TEST_B' => '2', 'TEST_C' => '3', 'TEST_D' => '4', 'TEST_E' => '5'], $values);
 
             $path = $this->createEnvFile("TEST_A=1\rTEST_B=2\n# c\r\nTEST_D=4\r\r\nTEST-KEY=5\r");
-            $this->expectException(InvalidKeyException::class);
-            $this->expectExceptionMessage("Invalid key in $path on line 6");
-            EnvLoader::parse($path);
+
+            try {
+                EnvLoader::parse($path);
+                $this->fail('Expected InvalidKeyException');
+            } catch (InvalidKeyException $e) {
+                $this->assertSame("Invalid key in $path on line 6", $e->getMessage());
+            }
         } finally {
             @ini_set('auto_detect_line_endings', $before);
         }
