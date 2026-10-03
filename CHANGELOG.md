@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" as it is built.
+## [2.0.0] - 2026-10-03
+
+Breaks compatibility with 1.x; what to change is listed under "Upgrading from 1.x".
 
 ### Added
 - `load()` returns the values of the file, as `parse()` does — also those the environment has overruled.
@@ -82,7 +84,8 @@ Work on 2.0 (branch `2.x`). What breaks is collected under "Upgrading from 1.x" 
 - PHPStan level 9 static analysis.
 - GitHub Actions CI for PHP 8.2, 8.3, 8.4, 8.5.
 
-[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/SoDaHo/env-loader/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/SoDaHo/env-loader/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/SoDaHo/env-loader/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SoDaHo/env-loader/releases/tag/v1.0.0
