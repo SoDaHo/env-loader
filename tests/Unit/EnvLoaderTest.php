@@ -727,6 +727,47 @@ class EnvLoaderTest extends TestCase
     }
 
     #[DataProvider('lineEndingProvider')]
+    public function testLineIsNotHeldOnceTheNextIsHandedOut(string $lineEnding): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            // There PHP grows a large string in steps of 2 MB by copying it, which counts it twice for a moment
+            $this->markTestSkipped('Windows counts a growing string twice');
+        }
+
+        // While the last line is parsed, the memory holds the value of the first line, the last line and its
+        // value: three times the length of a line. Holding the first line as well would make it four
+        $length = 8 * 1024 * 1024;
+        // Written in pieces, so the test itself needs no more memory than one line
+        $path = $this->createEnvFile('TEST_A=');
+        file_put_contents($path, str_repeat('a', $length), FILE_APPEND);
+        file_put_contents($path, $lineEnding . 'TEST_B=', FILE_APPEND);
+        file_put_contents($path, str_repeat('b', $length), FILE_APPEND);
+
+        // Measured in a child process with a memory limit of its own
+        $script = 'require $argv[1];'
+            . 'class_exists(Sodaho\EnvLoader\EnvLoader::class);'
+            . 'memory_reset_peak_usage();'
+            . '$before = memory_get_usage();'
+            . '$values = Sodaho\EnvLoader\EnvLoader::parse($argv[2]);'
+            . 'echo json_encode([array_map("strlen", array_values($values)), memory_get_peak_usage() - $before]);';
+        $output = $this->runInChildProcess(
+            $script,
+            $path,
+            ['-d', 'max_memory_limit=-1', '-d', 'memory_limit=256M'],
+            ['XDEBUG_MODE' => 'off']
+        );
+        $result = json_decode($output, true, flags: JSON_THROW_ON_ERROR);
+        $this->assertIsArray($result);
+        [$lengths, $peak] = $result;
+
+        $this->assertSame([$length, $length], $lengths);
+        $this->assertIsInt($peak);
+        // The two values alone take twice the length: less would mean the measurement missed the parsing
+        $this->assertGreaterThan(2 * $length, $peak);
+        $this->assertLessThan(3.5 * $length, $peak);
+    }
+
+    #[DataProvider('lineEndingProvider')]
     public function testFileLargerThanTheMemoryLimitIsRead(string $lineEnding): void
     {
         // 12 MB of comment lines: read in chunks, none of it stays in memory
@@ -753,10 +794,30 @@ class EnvLoaderTest extends TestCase
             . '});'
             . 'try { echo json_encode(Sodaho\EnvLoader\EnvLoader::parse($argv[2])); }'
             . 'catch (Throwable $e) { echo $e::class; }';
+
+        return $this->runInChildProcess($script, $path, $options);
+    }
+
+    /**
+     * Runs a script in a child process; it gets the autoloader as $argv[1] and the path as $argv[2].
+     *
+     * The child always uses the memory manager of PHP: with USE_ZEND_ALLOC=0, memory_limit is not enforced
+     * and memory_get_usage() counts nothing, so a test of memory would pass without testing anything. Nor
+     * does it get ZEND_MM_DEBUG, whose checks copy a growing string and so count it twice.
+     *
+     * @param list<string> $options
+     * @param array<string, string> $environment Set in the child in addition to the environment of this process
+     *
+     * @return string What the script wrote to stdout, then to stderr
+     */
+    private function runInChildProcess(string $script, string $path, array $options, array $environment = []): string
+    {
         $process = proc_open(
             [PHP_BINARY, ...$options, '-r', $script, dirname(__DIR__, 2) . '/vendor/autoload.php', $path],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
+            $pipes,
+            null,
+            ['USE_ZEND_ALLOC' => '1'] + $environment + array_diff_key(getenv(), ['ZEND_MM_DEBUG' => true])
         );
         $this->assertIsResource($process);
         $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);

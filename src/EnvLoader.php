@@ -222,6 +222,8 @@ final class EnvLoader
                 yield ++$lineNumber => $line;
             }
 
+            // Once the next line is handed out, also the last one from $carry, the one before is not held here
+            unset($line);
             $carry .= substr($chunk, $start);
         }
 
