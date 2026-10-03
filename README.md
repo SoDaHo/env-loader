@@ -165,7 +165,7 @@ try {
 | Exception | When |
 |-----------|------|
 | `FileNotFoundException` | File does not exist or is a directory |
-| `FileNotReadableException` | File exists but cannot be read, or reading it failed or stopped before its end (an error handler of yours that throws although the message is suppressed with `@` is the first to speak) |
+| `FileNotReadableException` | File exists but cannot be read, or reading it failed or stopped before its end (an error handler of yours that throws even for messages suppressed with `@` throws instead; if it throws while the file is closed, you get that exception, whatever `parse()` would have returned or thrown, with an exception thrown before as its previous) |
 | `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
 | `UnterminatedQuoteException` | Quoted value missing closing quote |

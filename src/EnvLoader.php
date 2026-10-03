@@ -180,8 +180,11 @@ final class EnvLoader
      * but cost no memory.
      *
      * The generator ends early if a read fails or brings no data before the end of the file: a line is
-     * never delivered cut off, and never joined across such a read. (An error handler of the application
-     * that throws for the suppressed message of a failed read is the first to speak, as in 1.x.)
+     * never delivered cut off, and never joined across such a read. (As in 1.x, @ does not keep an error
+     * handler of the application from being called. If it throws for the message of a failed read (a notice
+     * for a file on disk), its exception reaches the caller instead. If it throws while the file is closed,
+     * the caller gets that exception, whatever parse() would have returned or thrown; an exception thrown
+     * before becomes its previous one.)
      *
      * @param resource $handle
      *
