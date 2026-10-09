@@ -23,7 +23,7 @@ class RequestTest extends EnvLoaderTestCase
         // Under FastCGI, getenv() returns request headers (HTTP_*) and the parameters of the web server
         $path = $this->createEnvFile("HTTP_X_TEST=file\nTEST_PARAM=file");
         $script = $this->tempDir . '/request.php';
-        file_put_contents(
+        $this->writeFile(
             $script,
             '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
             . '$_ENV = [];'
@@ -55,7 +55,7 @@ class RequestTest extends EnvLoaderTestCase
 
         $path = $this->createEnvFile('TEST_OTHER=value');
         $script = $this->tempDir . '/request.php';
-        file_put_contents(
+        $this->writeFile(
             $script,
             '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
             . '$_ENV = [];'
@@ -81,7 +81,7 @@ class RequestTest extends EnvLoaderTestCase
         // Under plain CGI the request is the environment of the process: local_only does not tell them apart
         $path = $this->createEnvFile("HTTP_X_TEST=file\nCONTENT_TYPE=file");
         $script = $this->tempDir . '/request.php';
-        file_put_contents(
+        $this->writeFile(
             $script,
             '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
             . '$_ENV = [];'

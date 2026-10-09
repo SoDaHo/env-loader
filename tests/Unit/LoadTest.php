@@ -181,8 +181,8 @@ class LoadTest extends EnvLoaderTestCase
         $_ENV = [];
         $first = $this->tempDir . '/first.env';
         $second = $this->tempDir . '/second.env';
-        $this->assertNotFalse(file_put_contents($first, "TEST_NAME=first\nTEST_ONLY_FIRST=1"));
-        $this->assertNotFalse(file_put_contents($second, 'TEST_NAME=second'));
+        $this->writeFile($first, "TEST_NAME=first\nTEST_ONLY_FIRST=1");
+        $this->writeFile($second, 'TEST_NAME=second');
 
         EnvLoader::load($first);
         EnvLoader::load($second);

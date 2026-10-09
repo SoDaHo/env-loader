@@ -23,8 +23,11 @@ abstract class EnvLoaderTestCase extends TestCase
 
     protected function setUp(): void
     {
-        $this->tempDir = sys_get_temp_dir() . '/env-loader-test-' . uniqid();
-        mkdir($this->tempDir);
+        // A name nobody else picks, and a directory that is known to be there: a test must not find files of another
+        $this->tempDir = sys_get_temp_dir() . '/env-loader-test-' . bin2hex(random_bytes(8));
+        if (!mkdir($this->tempDir)) {
+            throw new \RuntimeException("Could not create $this->tempDir");
+        }
         $this->envBackup = $_ENV;
     }
 
@@ -47,8 +50,18 @@ abstract class EnvLoaderTestCase extends TestCase
     protected function createEnvFile(string $content): string
     {
         $path = $this->tempDir . '/.env';
-        file_put_contents($path, $content);
+        $this->writeFile($path, $content);
         return $path;
+    }
+
+    /**
+     * Writes a file for a test; a failed write would let the test read something else, so it throws.
+     */
+    protected function writeFile(string $path, string $content, int $flags = 0): void
+    {
+        if (file_put_contents($path, $content, $flags) !== strlen($content)) {
+            throw new \RuntimeException("Could not write $path");
+        }
     }
 
     /**

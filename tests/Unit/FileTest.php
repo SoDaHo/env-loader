@@ -414,9 +414,9 @@ class FileTest extends EnvLoaderTestCase
         $length = 8 * 1024 * 1024;
         // Written in pieces, so the test itself needs no more memory than one line
         $path = $this->createEnvFile('TEST_A=');
-        file_put_contents($path, str_repeat('a', $length), FILE_APPEND);
-        file_put_contents($path, $lineEnding . 'TEST_B=', FILE_APPEND);
-        file_put_contents($path, str_repeat('b', $length), FILE_APPEND);
+        $this->writeFile($path, str_repeat('a', $length), FILE_APPEND);
+        $this->writeFile($path, $lineEnding . 'TEST_B=', FILE_APPEND);
+        $this->writeFile($path, str_repeat('b', $length), FILE_APPEND);
 
         // Measured in a child process with a memory limit of its own
         $script = 'require $argv[1];'
