@@ -141,6 +141,7 @@ Details:
 - **NUL bytes** inside a value throw `InvalidValueException`, quoted or not: no environment value can hold one.
 - **Duplicate keys:** the last one wins.
 - **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; one UTF-8 BOM at the start of the first line that is not empty is skipped (only the whole three bytes). A value cannot contain a line break.
+- **Encoding:** values are bytes, returned as they are in the file, without conversion. Write the file in UTF-8 or ASCII. Other encodings are not recognized: a value in Latin-1 comes back in Latin-1, and in a file in UTF-16 the first assignment throws.
 
 ## Exceptions
 
@@ -221,13 +222,13 @@ $host = getenv('DB_HOST');
 ## When to Use
 
 - Development environments
+- Production where the environment of the process (Docker, systemd, `env[NAME]` in a PHP-FPM pool) sets the values: it wins over the file, which only fills the gaps
 - Shared hosting where system ENV is not available
 - Simple projects without framework
 - **Modern async PHP** (Swoole, RoadRunner, FrankenPHP)
 
 ## When NOT to Use
 
-- Production with proper system ENV configuration
 - When you need variable expansion (`${OTHER_VAR}`)
 - When you need multiline values
 - When you must support legacy code using `getenv()`
