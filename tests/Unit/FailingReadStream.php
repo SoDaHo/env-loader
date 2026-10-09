@@ -16,6 +16,8 @@ namespace Sodaho\EnvLoader\Tests\Unit;
  * - "ends":   the file ends after the pieces.
  * - "closes": as "ends", but the end is reported only at the third time of asking, as by a connection that is
  *             closed while it is being read.
+ * - "locked": as "ends", but the stat shows no permission bits: is_readable() says no, although the file
+ *             can be opened and read.
  *
  * "scheme://env" stands for "fails" after one whole line.
  */
@@ -37,7 +39,7 @@ class FailingReadStream
     {
         $url = parse_url($path);
         $host = $url['host'] ?? '';
-        $this->mode = in_array($host, ['breaks', 'ends', 'closes'], true) ? $host : 'fails';
+        $this->mode = in_array($host, ['breaks', 'ends', 'closes', 'locked'], true) ? $host : 'fails';
         $this->endUnnoticed = $this->mode === 'closes' ? 2 : 0;
 
         $pieces = substr($url['path'] ?? '', 1);
@@ -86,9 +88,9 @@ class FailingReadStream
     /**
      * @return array<string, int>
      */
-    public function url_stat(): array
+    public function url_stat(string $path): array
     {
-        // A regular file, readable for everyone
-        return ['mode' => 0o100444];
+        // A regular file, readable for everyone - or, "locked", for nobody
+        return ['mode' => (parse_url($path, PHP_URL_HOST) === 'locked') ? 0o100000 : 0o100444];
     }
 }

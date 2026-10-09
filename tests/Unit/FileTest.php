@@ -116,6 +116,23 @@ class FileTest extends EnvLoaderTestCase
         }
     }
 
+    public function testOpeningDecidesWhetherAFileCanBeRead(): void
+    {
+        // The stat of this stream shows no permission bits, so is_readable() says no; opening and reading work.
+        // Asking is_readable() before opening would reject a file that can be read (and, under seteuid(), ask
+        // for the wrong user)
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $path = $scheme . '://locked/' . rawurlencode("TEST_KEY=value\n");
+
+        try {
+            $this->assertFalse(is_readable($path));
+            $this->assertSame(['TEST_KEY' => 'value'], EnvLoader::parse($path));
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
     public function testOpenBasedirRestrictionThrowsWithoutWarning(): void
     {
         $path = $this->createEnvFile('TEST_KEY=value');
