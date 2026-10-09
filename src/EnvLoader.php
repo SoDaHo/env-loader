@@ -128,7 +128,6 @@ final class EnvLoader
         return getenv($key, true);
     }
 
-
     /**
      * Parse a .env file and return key-value pairs without setting $_ENV.
      *
@@ -270,7 +269,6 @@ final class EnvLoader
         return true;
     }
 
-
     /**
      * Format key-value pairs as .env content that parse() reads back unchanged.
      *
@@ -313,7 +311,6 @@ final class EnvLoader
 
         return $content;
     }
-
 
     /**
      * @param string $location File and line for error messages - messages never contain file content

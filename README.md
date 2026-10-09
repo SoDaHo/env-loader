@@ -74,7 +74,7 @@ A required key may come from the file, from `$_ENV` or from the process environm
 ```php
 $file = EnvLoader::load('.env');
 
-if ($_ENV['APP_DEBUG'] !== $file['APP_DEBUG']) {
+if (array_key_exists('APP_DEBUG', $file) && $_ENV['APP_DEBUG'] !== $file['APP_DEBUG']) {
     // The environment overrules the file
 }
 ```
