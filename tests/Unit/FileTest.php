@@ -16,22 +16,29 @@ use Sodaho\EnvLoader\Exception\InvalidKeyException;
  */
 class FileTest extends EnvLoaderTestCase
 {
-    public function testThrowsFileNotFoundException(): void
+    /**
+     * @return array<string, array{string, bool}> The path ("directory": the directory of the test), through load() or parse()
+     */
+    public static function missingFileProvider(): array
     {
-        $this->expectException(FileNotFoundException::class);
-        EnvLoader::load('/nonexistent/path/.env');
+        return [
+            'missing file, load()' => ['/nonexistent/path/.env', true],
+            'missing file, parse()' => ['/nonexistent/path/.env', false],
+            'directory, load()' => ['directory', true],
+        ];
     }
 
-    public function testParseThrowsFileNotFoundException(): void
+    #[DataProvider('missingFileProvider')]
+    public function testThrowsFileNotFoundException(string $path, bool $load): void
     {
-        $this->expectException(FileNotFoundException::class);
-        EnvLoader::parse('/nonexistent/path/.env');
-    }
+        $path = $path === 'directory' ? $this->tempDir : $path;
 
-    public function testThrowsFileNotFoundExceptionForDirectory(): void
-    {
         $this->expectException(FileNotFoundException::class);
-        EnvLoader::load($this->tempDir);
+        if ($load) {
+            EnvLoader::load($path);
+        } else {
+            EnvLoader::parse($path);
+        }
     }
 
     /**

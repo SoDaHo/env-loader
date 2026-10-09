@@ -18,46 +18,35 @@ use Sodaho\EnvLoader\Exception\UnterminatedQuoteException;
  */
 class ParseErrorTest extends EnvLoaderTestCase
 {
-    public function testThrowsInvalidKeyException(): void
+    /**
+     * @return array<string, array{string, class-string<\Throwable>, bool}> Content, exception, through load() or parse()
+     */
+    public static function rejectedFileProvider(): array
     {
-        $path = $this->createEnvFile('123INVALID=value');
-        $this->expectException(InvalidKeyException::class);
-        EnvLoader::load($path);
+        return [
+            'key starting with a digit, load()' => ['123INVALID=value', InvalidKeyException::class, true],
+            'key with a hyphen, load()' => ['INVALID-KEY=value', InvalidKeyException::class, true],
+            'unterminated double quote, load()' => ['TEST_KEY="unterminated', UnterminatedQuoteException::class, true],
+            'unterminated single quote, load()' => ["TEST_KEY='unterminated", UnterminatedQuoteException::class, true],
+            'key starting with a digit, parse()' => ['123INVALID=value', InvalidKeyException::class, false],
+            'unterminated double quote, parse()' => ['TEST_KEY="unterminated', UnterminatedQuoteException::class, false],
+        ];
     }
 
-    public function testThrowsInvalidKeyExceptionForHyphen(): void
+    /**
+     * @param class-string<\Throwable> $exception
+     */
+    #[DataProvider('rejectedFileProvider')]
+    public function testRejectedFileThrows(string $content, string $exception, bool $load): void
     {
-        $path = $this->createEnvFile('INVALID-KEY=value');
-        $this->expectException(InvalidKeyException::class);
-        EnvLoader::load($path);
-    }
+        $path = $this->createEnvFile($content);
 
-    public function testThrowsUnterminatedDoubleQuoteException(): void
-    {
-        $path = $this->createEnvFile('TEST_KEY="unterminated');
-        $this->expectException(UnterminatedQuoteException::class);
-        EnvLoader::load($path);
-    }
-
-    public function testThrowsUnterminatedSingleQuoteException(): void
-    {
-        $path = $this->createEnvFile("TEST_KEY='unterminated");
-        $this->expectException(UnterminatedQuoteException::class);
-        EnvLoader::load($path);
-    }
-
-    public function testParseThrowsInvalidKeyException(): void
-    {
-        $path = $this->createEnvFile('123INVALID=value');
-        $this->expectException(InvalidKeyException::class);
-        EnvLoader::parse($path);
-    }
-
-    public function testParseThrowsUnterminatedQuoteException(): void
-    {
-        $path = $this->createEnvFile('TEST_KEY="unterminated');
-        $this->expectException(UnterminatedQuoteException::class);
-        EnvLoader::parse($path);
+        $this->expectException($exception);
+        if ($load) {
+            EnvLoader::load($path);
+        } else {
+            EnvLoader::parse($path);
+        }
     }
 
     /**

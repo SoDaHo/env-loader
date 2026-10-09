@@ -34,48 +34,67 @@ class LoadTest extends EnvLoaderTestCase
         $this->assertSame('new', $_ENV['TEST_OVERWRITE']);
     }
 
-    public function testRequiredKeysAsArray(): void
+    /**
+     * @return array<string, array{string, array<string>|string, array<string, string>}> Content, required keys, values
+     */
+    public static function requiredKeysProvider(): array
     {
-        $path = $this->createEnvFile("TEST_REQ_ONE=one\nTEST_REQ_TWO=two");
-        EnvLoader::load($path, required: ['TEST_REQ_ONE', 'TEST_REQ_TWO']);
-
-        $this->assertSame('one', $_ENV['TEST_REQ_ONE']);
-        $this->assertSame('two', $_ENV['TEST_REQ_TWO']);
+        return [
+            'array' => [
+                "TEST_REQ_ONE=one\nTEST_REQ_TWO=two",
+                ['TEST_REQ_ONE', 'TEST_REQ_TWO'],
+                ['TEST_REQ_ONE' => 'one', 'TEST_REQ_TWO' => 'two'],
+            ],
+            'comma-separated string' => [
+                "TEST_STR_ONE=one\nTEST_STR_TWO=two",
+                'TEST_STR_ONE,TEST_STR_TWO',
+                ['TEST_STR_ONE' => 'one', 'TEST_STR_TWO' => 'two'],
+            ],
+            'string with a trailing comma' => [
+                "TEST_TRAIL_ONE=one\nTEST_TRAIL_TWO=two",
+                'TEST_TRAIL_ONE,TEST_TRAIL_TWO,',
+                ['TEST_TRAIL_ONE' => 'one', 'TEST_TRAIL_TWO' => 'two'],
+            ],
+            'string with an empty entry' => [
+                "TEST_EMPTY_ONE=one\nTEST_EMPTY_TWO=two",
+                'TEST_EMPTY_ONE,,TEST_EMPTY_TWO',
+                ['TEST_EMPTY_ONE' => 'one', 'TEST_EMPTY_TWO' => 'two'],
+            ],
+            'empty string' => [
+                'TEST_EMPTY_REQ=value',
+                '',
+                ['TEST_EMPTY_REQ' => 'value'],
+            ],
+            'empty value' => [
+                'TEST_EMPTY_REQUIRED=',
+                ['TEST_EMPTY_REQUIRED'],
+                ['TEST_EMPTY_REQUIRED' => ''],
+            ],
+            'string with spaces around the keys' => [
+                "TEST_SPACE_ONE=one\nTEST_SPACE_TWO=two",
+                ' TEST_SPACE_ONE , TEST_SPACE_TWO ',
+                ['TEST_SPACE_ONE' => 'one', 'TEST_SPACE_TWO' => 'two'],
+            ],
+            'array with spaces and an empty entry' => [
+                "TEST_ARR_ONE=one\nTEST_ARR_TWO=two",
+                [' TEST_ARR_ONE ', '', 'TEST_ARR_TWO'],
+                ['TEST_ARR_ONE' => 'one', 'TEST_ARR_TWO' => 'two'],
+            ],
+        ];
     }
 
-    public function testRequiredKeysAsString(): void
+    /**
+     * @param array<string>|string $required
+     * @param array<string, string> $expected
+     */
+    #[DataProvider('requiredKeysProvider')]
+    public function testRequiredKeysThatArePresent(string $content, array|string $required, array $expected): void
     {
-        $path = $this->createEnvFile("TEST_STR_ONE=one\nTEST_STR_TWO=two");
-        EnvLoader::load($path, required: 'TEST_STR_ONE,TEST_STR_TWO');
+        EnvLoader::load($this->createEnvFile($content), required: $required);
 
-        $this->assertSame('one', $_ENV['TEST_STR_ONE']);
-        $this->assertSame('two', $_ENV['TEST_STR_TWO']);
-    }
-
-    public function testRequiredKeysIgnoresTrailingComma(): void
-    {
-        $path = $this->createEnvFile("TEST_TRAIL_ONE=one\nTEST_TRAIL_TWO=two");
-        EnvLoader::load($path, required: 'TEST_TRAIL_ONE,TEST_TRAIL_TWO,');
-
-        $this->assertSame('one', $_ENV['TEST_TRAIL_ONE']);
-        $this->assertSame('two', $_ENV['TEST_TRAIL_TWO']);
-    }
-
-    public function testRequiredKeysIgnoresEmptyEntries(): void
-    {
-        $path = $this->createEnvFile("TEST_EMPTY_ONE=one\nTEST_EMPTY_TWO=two");
-        EnvLoader::load($path, required: 'TEST_EMPTY_ONE,,TEST_EMPTY_TWO');
-
-        $this->assertSame('one', $_ENV['TEST_EMPTY_ONE']);
-        $this->assertSame('two', $_ENV['TEST_EMPTY_TWO']);
-    }
-
-    public function testRequiredKeysEmptyStringIsNoOp(): void
-    {
-        $path = $this->createEnvFile('TEST_EMPTY_REQ=value');
-        EnvLoader::load($path, required: '');
-
-        $this->assertSame('value', $_ENV['TEST_EMPTY_REQ']);
+        foreach ($expected as $key => $value) {
+            $this->assertSame($value, $_ENV[$key]);
+        }
     }
 
     public function testThrowsMissingRequiredKeyException(): void
@@ -425,30 +444,6 @@ class LoadTest extends EnvLoaderTestCase
         EnvLoader::load($path, required: ['TEST_FROM_ENV', 'TEST_FROM_FILE']);
 
         $this->assertSame('value', $_ENV['TEST_FROM_FILE']);
-    }
-
-    public function testRequiredKeyMayBeEmpty(): void
-    {
-        $path = $this->createEnvFile('TEST_EMPTY_REQUIRED=');
-        EnvLoader::load($path, required: ['TEST_EMPTY_REQUIRED']);
-
-        $this->assertSame('', $_ENV['TEST_EMPTY_REQUIRED']);
-    }
-
-    public function testRequiredKeysAsStringAreTrimmed(): void
-    {
-        $path = $this->createEnvFile("TEST_SPACE_ONE=one\nTEST_SPACE_TWO=two");
-        EnvLoader::load($path, required: ' TEST_SPACE_ONE , TEST_SPACE_TWO ');
-
-        $this->assertSame('two', $_ENV['TEST_SPACE_TWO']);
-    }
-
-    public function testRequiredKeysAsArrayAreTrimmedAndEmptyEntriesIgnored(): void
-    {
-        $path = $this->createEnvFile("TEST_ARR_ONE=one\nTEST_ARR_TWO=two");
-        EnvLoader::load($path, required: [' TEST_ARR_ONE ', '', 'TEST_ARR_TWO']);
-
-        $this->assertSame('two', $_ENV['TEST_ARR_TWO']);
     }
 
     public function testRequiredKeysAreTrimmedLikeTheFile(): void
