@@ -1,13 +1,17 @@
 # PHP 8.6 is not released yet: the tests run on its pre-release build as well and may fail there without
-# failing the run (continue-on-error). Static analysis and code style stay on 8.5.
+# failing the run (continue-on-error). The Composer files, static analysis and code style are checked on 8.5.
+# Actions are pinned to the commit of a release; the comment names the release.
 name: CI
 
 on:
   push:
-    branches: [main, master, 2.x]
+    branches: [main]
   pull_request:
-    branches: [main, master, 2.x]
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -22,12 +26,14 @@ jobs:
     name: PHP ${{ matrix.php }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: ${{ matrix.php }}
+          # posix lets the test for an unreadable file drop root privileges
+          extensions: posix
           coverage: none
 
       - name: Check the PHP version
@@ -36,77 +42,66 @@ jobs:
         env:
           WANTED: ${{ matrix.php }}
 
+      # The FastCGI and CGI tests need php-cgi next to the PHP binary, found the way the tests look for it.
+      # Without it they are skipped, and the tests run with --fail-on-skipped
+      - name: Install php-cgi
+        shell: bash
+        run: |
+          cgi() { php -r 'require "tests/Unit/PhpCgi.php"; echo Sodaho\EnvLoader\Tests\Unit\PhpCgi::binary();'; }
+          echo "PHP_BINARY: $(php -r 'echo PHP_BINARY;')"
+          if [ -z "$(cgi)" ]; then
+            sudo=$([ "$(id -u)" -eq 0 ] || echo sudo)
+            $sudo apt-get update -q
+            $sudo apt-get install -y -q "php${{ matrix.php }}-cgi"
+          fi
+          found="$(cgi)"
+          echo "php-cgi: ${found:-not found}"
+          [ -n "$found" ]
+
       - name: Get Composer Cache Directory
         id: composer-cache
         run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
 
       - name: Cache Composer dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
           restore-keys: ${{ runner.os }}-composer-
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 
+      # A skipped test fails the run here: locally a test may be skipped where its platform is missing
       - name: Run tests
-        run: composer test
+        run: composer test -- --fail-on-skipped
 
-  analyse:
+  checks:
     runs-on: ubuntu-latest
     container: shivammathur/node:24.04
-    name: Static Analysis
+    name: Composer files, static analysis and code style
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.5'
           coverage: none
+
+      - name: Validate composer.json and composer.lock
+        run: composer validate --strict
 
       - name: Get Composer Cache Directory
         id: composer-cache
         run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
 
       - name: Cache Composer dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
-          restore-keys: ${{ runner.os }}-composer-
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Run PHPStan
-        run: composer analyse
-
-  code-style:
-    runs-on: ubuntu-latest
-    container: shivammathur/node:24.04
-    name: Code Style
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          coverage: none
-
-      - name: Get Composer Cache Directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
-
-      - name: Cache Composer dependencies
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
           restore-keys: ${{ runner.os }}-composer-
 
       - name: Install dependencies
@@ -114,3 +109,6 @@ jobs:
 
       - name: Check code style
         run: composer cs
+
+      - name: Run PHPStan
+        run: composer analyse
