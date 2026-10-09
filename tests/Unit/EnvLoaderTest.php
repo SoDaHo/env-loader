@@ -1889,6 +1889,12 @@ class EnvLoaderTest extends TestCase
             'null' => [['TEST_KEY', null]],
             'integer' => [['TEST_KEY', 123]],
             'false' => [[false, 'TEST_KEY']],
+            'object with a string form' => [[new class () implements \Stringable {
+                public function __toString(): string
+                {
+                    return 'TEST_KEY';
+                }
+            }]],
         ];
     }
 
@@ -1898,7 +1904,7 @@ class EnvLoaderTest extends TestCase
     #[DataProvider('looseRequiredProvider')]
     public function testRequiredEntryThatIsNotAStringIsReadAsOne(array $required): void
     {
-        // As in 1.x: null and false are empty entries, a number is a key
+        // As in 1.x: null and false are empty entries, a number or an object with a string form is a key
         $_ENV = [123 => 'set'];
         EnvLoader::load($this->createEnvFile('TEST_KEY=value'), required: $required);
 
@@ -1924,6 +1930,35 @@ class EnvLoaderTest extends TestCase
         $this->expectException(MissingRequiredKeyException::class);
         $this->expectExceptionMessageMatches('/^Missing required key: (123|1\.5)$/');
         EnvLoader::load($this->createEnvFile('TEST_KEY=value'), required: $required);
+    }
+
+    /**
+     * @return array<string, array{array<mixed>, string}>
+     */
+    public static function requiredEntryWithoutAStringFormProvider(): array
+    {
+        return [
+            'array' => [['TEST_KEY', ['TEST_KEY']], 'Required key at position 2 must be a string, array given'],
+            'object' => [[new \stdClass(), 'TEST_KEY'], 'Required key at position 1 must be a string, stdClass given'],
+        ];
+    }
+
+    /**
+     * @param array<string> $required Declared as the strings load() expects, to get past static analysis
+     */
+    #[DataProvider('requiredEntryWithoutAStringFormProvider')]
+    public function testRequiredEntryWithoutAStringFormIsRejected(array $required, string $message): void
+    {
+        // Read as a string, an array would be required as the key "Array", after a warning
+        $_ENV = ['TEST_EXISTING' => 'original'];
+
+        try {
+            EnvLoader::load($this->createEnvFile('TEST_KEY=value'), required: $required);
+            $this->fail('Expected InvalidArgumentException');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame($message, $e->getMessage());
+            $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
     }
 
     public function testMissingRequiredKeyFromStringIsNamedTrimmed(): void

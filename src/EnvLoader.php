@@ -30,6 +30,7 @@ final class EnvLoader
      * @throws Exception\TrailingCharactersException
      * @throws Exception\InvalidValueException
      * @throws Exception\MissingRequiredKeyException
+     * @throws \InvalidArgumentException An entry of $required has no string form
      *
      * @return array<string, string> The values of the file, whether or not they were written to $_ENV
      */
@@ -40,20 +41,34 @@ final class EnvLoader
     ): array {
         $values = self::parse($path);
 
-        // Handle required keys - normalize to array
+        // Handle required keys - normalize to a list of trimmed names
         if (is_string($required)) {
             $required = explode(',', $required);
         }
-        $required = array_filter(
-            array_map(fn ($key) => trim((string) $key, self::WHITESPACE), $required),
-            fn ($key) => $key !== ''
-        );
+        $names = [];
+        $position = 0;
+        foreach ($required as $key) {
+            $position++;
+
+            // As in 1.x, a scalar or null is read as a string (null and false are empty entries, a number is a key).
+            // Anything else has no name to require: an array would become the key "Array", after a warning
+            if (!is_scalar($key) && $key !== null && !$key instanceof \Stringable) {
+                throw new \InvalidArgumentException(
+                    sprintf('Required key at position %d must be a string, %s given', $position, get_debug_type($key))
+                );
+            }
+
+            $key = trim((string) $key, self::WHITESPACE);
+            if ($key !== '') {
+                $names[] = $key;
+            }
+        }
 
         // Check before writing, so a failed load leaves $_ENV untouched. Every missing key is collected first:
         // one run names all of them
         $requiredFromProcess = [];
         $missing = [];
-        foreach ($required as $key) {
+        foreach ($names as $key) {
             if (array_key_exists($key, $values) || array_key_exists($key, $_ENV)) {
                 continue;
             }

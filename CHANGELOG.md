@@ -8,6 +8,7 @@
 
 ### Fixed
 - A NUL byte inside a value of the file throws `InvalidValueException`, quoted or not (it was accepted, while `format()` rejects it). The message names the key and the line, never the value. NUL at either end of a value is whitespace and removed, as before. A file in UTF-16 no longer passes with values that hold NUL bytes.
+- An entry of `required` that has no string form (an array, an object without `__toString()`) throws `\InvalidArgumentException` naming its position. An array raised the warning "Array to string conversion" and was required as the key `Array`; such an object threw an `Error`.
 - README: `FileNotFoundException` is also thrown for a path that is not a regular file (FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the message does not tell these cases apart.
 - README: the encoding is described (values are bytes, UTF-8 or ASCII; other encodings are not recognized), and production with the values in the environment of the process is no longer advised against: since 2.0 that environment wins over the file.
 - README: "thread-safe by design" is narrowed to what holds: in a long-running worker, load the file once when the worker starts, from a fixed path. A second `load()` with another file mixes with the first; for values per tenant or request, `parse()` and an object of your own. The example for writing a file creates it with mode 0600 outside the web root and replaces the old one in one step.
