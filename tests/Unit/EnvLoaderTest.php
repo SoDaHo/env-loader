@@ -418,6 +418,16 @@ class EnvLoaderTest extends TestCase
         EnvLoader::parse($path);
     }
 
+    public function testSymlinkToAFileIsRead(): void
+    {
+        $link = $this->tempDir . '/link.env';
+        if (!@symlink($this->createEnvFile('TEST_KEY=value'), $link)) {
+            $this->markTestSkipped('Cannot create a symbolic link here');
+        }
+
+        $this->assertSame(['TEST_KEY' => 'value'], EnvLoader::parse($link));
+    }
+
     public function testThrowsInvalidKeyException(): void
     {
         $path = $this->createEnvFile('123INVALID=value');
@@ -1023,6 +1033,12 @@ class EnvLoaderTest extends TestCase
             'key named export with tab and NUL before =' => ["export\t\0=1", ['export' => '1']],
             'key starting with export' => ['exportTEST=1', ['exportTEST' => '1']],
             'lowercase letters and digits in key' => ['test_a1=1', ['test_a1' => '1']],
+            'space inside an unquoted value' => ['TEST_A=hello world', ['TEST_A' => 'hello world']],
+            'equals sign at the start of a value' => ['TEST_A==value', ['TEST_A' => '=value']],
+            'unquoted backslash sequence stays literal' => ['TEST_A=C:\new', ['TEST_A' => 'C:\new']],
+            'form feed inside a value is kept' => ["TEST_A=a\fb", ['TEST_A' => "a\fb"]],
+            'non-breaking space is no whitespace' => ["TEST_A=\xC2\xA0value\xC2\xA0", ['TEST_A' => "\xC2\xA0value\xC2\xA0"]],
+            'byte of Latin-1 is returned as it is' => ["TEST_A=caf\xE9", ['TEST_A' => "caf\xE9"]],
         ];
     }
 
@@ -1223,6 +1239,7 @@ class EnvLoaderTest extends TestCase
             'quoted text' => ['"hunter2"'],
             'colon instead of equals' => ['TEST_KEY: hunter2'],
             'second half of a line broken by CR' => ["TEST_KEY=1\rhunter2"],
+            'export before a comment' => ['export # hunter2'],
         ];
     }
 
@@ -1344,6 +1361,7 @@ class EnvLoaderTest extends TestCase
             'last two bytes of a BOM' => ["\xBB\xBFTEST_KEY=value"],
             'first two bytes of a BOM' => ["\xEF\xBBTEST_KEY=value"],
             'two BOMs' => ["\xEF\xBB\xBF\xEF\xBB\xBFTEST_KEY=value"],
+            'BOM of UTF-16' => ["\xFF\xFET\0E\0S\0T\0=\0v\0"],
         ];
     }
 
@@ -2053,6 +2071,7 @@ class EnvLoaderTest extends TestCase
             'TEST_LITERAL_ESCAPES' => 'a\\nb\\tc\\$d',
             'TEST_DOLLAR' => '$HOME ${TEST_EMPTY}',
             'TEST_ASSIGNMENT' => 'export A=1',
+            'export' => 'a key named export',
             'TEST_UNICODE' => 'ünïcödé – 日本語',
             'TEST_CONTROL' => "\x01\v\f\x1b\x7f",
             'TEST_INVALID_UTF8' => "\xff\xfe\x80",
