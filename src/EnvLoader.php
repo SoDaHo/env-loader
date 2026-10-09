@@ -147,9 +147,12 @@ final class EnvLoader
             $lines = self::lines($handle);
 
             foreach ($lines as $lineNumber => $line) {
-                // Strip UTF-8 BOM from the first non-empty line (common in Windows-created files)
+                // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Only the whole
+                // sequence: single bytes of it, or a second BOM, stay and make the key invalid
                 if ($bomPossible && $line !== '') {
-                    $line = ltrim($line, "\xEF\xBB\xBF");
+                    if (str_starts_with($line, "\xEF\xBB\xBF")) {
+                        $line = substr($line, 3);
+                    }
                     $bomPossible = false;
                 }
 

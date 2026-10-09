@@ -1281,6 +1281,33 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function partOfABomProvider(): array
+    {
+        return [
+            'last byte of a BOM' => ["\xBFTEST_KEY=value"],
+            'last two bytes of a BOM' => ["\xBB\xBFTEST_KEY=value"],
+            'first two bytes of a BOM' => ["\xEF\xBBTEST_KEY=value"],
+            'two BOMs' => ["\xEF\xBB\xBF\xEF\xBB\xBFTEST_KEY=value"],
+        ];
+    }
+
+    #[DataProvider('partOfABomProvider')]
+    public function testOnlyOneWholeBomIsSkipped(string $content): void
+    {
+        // Bytes of a BOM that do not form one belong to the key: the file is rejected, not read as if they were not there
+        $path = $this->createEnvFile($content);
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidKeyException');
+        } catch (InvalidKeyException $e) {
+            $this->assertSame("Invalid key in $path on line 1", $e->getMessage());
+        }
+    }
+
     // ============================================
     // load(): Guarantees
     // ============================================

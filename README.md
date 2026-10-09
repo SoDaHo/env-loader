@@ -140,7 +140,7 @@ Details:
 - **Whitespace** around keys and values, and at both ends of a line, is removed: space, tab, vertical tab, form feed and NUL, the same on every PHP version.
 - **NUL bytes** inside a value throw `InvalidValueException`, quoted or not: no environment value can hold one.
 - **Duplicate keys:** the last one wins.
-- **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; a UTF-8 BOM is skipped. A value cannot contain a line break.
+- **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; one UTF-8 BOM at the start of the first line that is not empty is skipped (only the whole three bytes). A value cannot contain a line break.
 
 ## Exceptions
 

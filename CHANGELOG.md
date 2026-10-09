@@ -4,6 +4,7 @@
 
 ### Fixed
 - A NUL byte inside a value of the file throws `InvalidValueException`, quoted or not (it was accepted, while `format()` rejects it). The message names the key and the line, never the value. NUL at either end of a value is whitespace and removed, as before. A file in UTF-16 no longer passes with values that hold NUL bytes.
+- Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
 
 ## [2.0.0] - 2026-10-03
 
