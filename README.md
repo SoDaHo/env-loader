@@ -185,7 +185,7 @@ try {
 
 An entry of `required` that has no string form (an array, an object without `__toString()`) is a mistake in the code, not in the file: it throws `\InvalidArgumentException`, which is no `EnvLoaderException`.
 
-Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
+Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from the stack traces of these exceptions as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
 
 Messages name the path as it was passed in, so keep secrets out of the path. The path is trusted input: `parse()` and `load()` open it with `fopen()`, so a stream wrapper that PHP can stat is used as well (a `phar://` path is read like a file; `http://` or `php://filter` throw `FileNotFoundException`). Never build the path from a request.
 

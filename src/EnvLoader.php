@@ -9,8 +9,10 @@ namespace Sodaho\EnvLoader;
  * into .env content that parse() reads back unchanged.
  *
  * Invariants: nothing but $_ENV is written (no putenv(), no $_SERVER); a load() that throws leaves $_ENV as it
- * was; messages and stack trace arguments never carry a value or a raw line of the file, only the path, the line
- * number and, once it is valid, the key.
+ * was; messages never carry a value or a raw line of the file, only the path, the line number and, once it is
+ * valid, the key, and the arguments in the stack traces of its exceptions hide them (#[\SensitiveParameter]).
+ * Not covered: the backtrace PHP prints for a fatal error, such as memory running out on a huge line, can show
+ * the start of a line (README).
  */
 final class EnvLoader
 {
