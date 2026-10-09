@@ -1113,6 +1113,53 @@ class EnvLoaderTest extends TestCase
     /**
      * @return array<string, array{string}>
      */
+    public static function nulInValueProvider(): array
+    {
+        return [
+            'unquoted' => ["TEST_KEY=hunter2\0tail"],
+            'single-quoted' => ["TEST_KEY='hunter2\0tail'"],
+            'double-quoted' => ["TEST_KEY=\"hunter2\0tail\""],
+            'escaped in double quotes' => ["TEST_KEY=\"hunter2\\\0tail\""],
+            'unquoted before a comment' => ["TEST_KEY=hunter2\0tail # comment"],
+        ];
+    }
+
+    #[DataProvider('nulInValueProvider')]
+    public function testNulInsideAValueThrowsAndNamesOnlyKeyAndLine(string $line): void
+    {
+        // An environment value cannot hold a NUL byte: format() rejects it, and a C API would cut the value there
+        $path = $this->createEnvFile("TEST_FIRST=1\n\n" . $line . "\nTEST_LAST=1");
+        $traceArguments = ini_set('zend.exception_ignore_args', '0');
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidValueException');
+        } catch (InvalidValueException $e) {
+            $this->assertSame("Value for key \"TEST_KEY\" contains a NUL byte in $path on line 3", $e->getMessage());
+
+            $arguments = $this->traceArguments($e);
+            $this->assertStringContainsString($path, $arguments);
+            $this->assertStringNotContainsString('hunter2', $arguments);
+            $this->assertStringNotContainsString('tail', $arguments);
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $traceArguments);
+        }
+    }
+
+    public function testUtf16FileIsNotReadAsValuesWithNulBytes(): void
+    {
+        // In UTF-16 every ASCII character has a NUL byte next to it: a key of one character passes as valid,
+        // its value would keep a NUL byte between its letters
+        $path = $this->createEnvFile("K\0=\0v\0a\0\n\0");
+
+        $this->expectException(InvalidValueException::class);
+        $this->expectExceptionMessage("Value for key \"K\" contains a NUL byte in $path on line 1");
+        EnvLoader::parse($path);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
     public static function lineWithoutEqualsProvider(): array
     {
         return [

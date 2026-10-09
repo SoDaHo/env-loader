@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- A NUL byte inside a value of the file throws `InvalidValueException`, quoted or not (it was accepted, while `format()` rejects it). The message names the key and the line, never the value. NUL at either end of a value is whitespace and removed, as before. A file in UTF-16 no longer passes with values that hold NUL bytes.
+
 ## [2.0.0] - 2026-10-03
 
 Breaks compatibility with 1.x; what to change is listed under "Upgrading from 1.x".

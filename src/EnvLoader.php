@@ -28,6 +28,7 @@ final class EnvLoader
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\TrailingCharactersException
+     * @throws Exception\InvalidValueException
      * @throws Exception\MissingRequiredKeyException
      *
      * @return array<string, string> The values of the file, whether or not they were written to $_ENV
@@ -110,6 +111,7 @@ final class EnvLoader
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\TrailingCharactersException
+     * @throws Exception\InvalidValueException
      *
      * @return array<string, string>
      */
@@ -295,6 +297,7 @@ final class EnvLoader
      * @throws Exception\InvalidKeyException
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\TrailingCharactersException
+     * @throws Exception\InvalidValueException
      *
      * @return array{0: string, 1: string}|null
      */
@@ -330,7 +333,15 @@ final class EnvLoader
             throw new Exception\InvalidKeyException("Invalid key in $location");
         }
 
-        return [$key, self::parseValue(substr($line, $pos + 1), $key, $location)];
+        $value = self::parseValue(substr($line, $pos + 1), $key, $location);
+
+        // Checked on the finished value, so it holds for every form of quoting. NUL is never part of an environment
+        // value (format() rejects it too): a C API would cut the value there. At the ends of a value it is whitespace
+        if (str_contains($value, "\0")) {
+            throw new Exception\InvalidValueException("Value for key \"$key\" contains a NUL byte in $location");
+        }
+
+        return [$key, $value];
     }
 
     /**

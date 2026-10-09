@@ -138,6 +138,7 @@ Details:
 - **Single quotes:** literal, a single-quoted value cannot contain `'`.
 - **Ignored lines:** empty lines and comment lines. Every other line has to be an assignment: a line without `=` throws.
 - **Whitespace** around keys and values, and at both ends of a line, is removed: space, tab, vertical tab, form feed and NUL, the same on every PHP version.
+- **NUL bytes** inside a value throw `InvalidValueException`, quoted or not: no environment value can hold one.
 - **Duplicate keys:** the last one wins.
 - **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; a UTF-8 BOM is skipped. A value cannot contain a line break.
 
@@ -171,9 +172,9 @@ try {
 | `UnterminatedQuoteException` | Quoted value missing closing quote |
 | `TrailingCharactersException` | Text other than a comment after the closing quote |
 | `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment |
-| `InvalidValueException` | `format()`: value is not a string, or contains a line break or NUL byte |
+| `InvalidValueException` | `parse()`, `load()`: a value contains a NUL byte. `format()`: value is not a string, or contains a line break or NUL byte |
 
-Messages for errors in the file name the file, the line and, for quote errors, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
+Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from stack traces as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
 
 ## Key Naming Rules
 
