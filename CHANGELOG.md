@@ -4,7 +4,7 @@
 
 ## [2.0.1] - 2026-10-09
 
-Fixes and documentation, no new API. What a caller may notice is listed under "Changed".
+Fixes and documentation, no new API. What a caller may notice is listed under "Upgrading from 2.0.0".
 
 ### Changed
 - `MissingRequiredKeyException` names every missing required key, in the order given (`Missing required keys: A, B`), instead of only the first. The message for a single missing key is unchanged.
@@ -22,6 +22,14 @@ Fixes and documentation, no new API. What a caller may notice is listed under "C
 - README: the example that compares the environment with the file no longer warns when the key is not in the file.
 - README: links to the upgrade guide from 1.x in this changelog, which the installed package does not contain.
 - CHANGELOG: 1.0.0 was released on 2026-03-19 (the date of its tag), not on 2026-03-15.
+
+### Upgrading from 2.0.0
+Code that loads valid files with valid arguments needs no change. A caller can notice these differences:
+- **NUL in a value:** `parse()` and `load()` throw `InvalidValueException` where 2.0.0 returned the value. `catch (EnvLoaderException $e)` catches it; code that catches the errors of the file class by class needs `InvalidValueException` as well.
+- **Several missing required keys:** the message is `Missing required keys: A, B` (2.0.0 named the first one: `Missing required key: A`). With one missing key the message is unchanged; code that compares the message has to accept both forms.
+- **File that cannot be opened:** `FileNotReadableException` says `Could not read file: …` (2.0.0: `File not readable: …`); the class is the same.
+- **Stray bytes of a BOM, or two BOMs, at the start of the file:** `InvalidKeyException` for line 1, where 2.0.0 read the file.
+- **An entry of `required` without a string form** (an array, an object without `__toString()`): `\InvalidArgumentException`, which is no `EnvLoaderException` (2.0.0: a warning and the key `Array`, or an `Error` for such an object).
 
 ## [2.0.0] - 2026-10-03
 
