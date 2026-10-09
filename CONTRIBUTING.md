@@ -23,7 +23,7 @@ composer ci
 
 # Individual commands
 composer test        # PHPUnit tests
-composer analyse     # PHPStan (Level 9)
+composer analyse     # PHPStan (level max)
 composer cs          # Check code style
 composer cs:fix      # Fix code style automatically
 ```
@@ -47,7 +47,7 @@ Key rules:
 
 ## Static Analysis
 
-PHPStan runs at **Level 9** on `src` and `tests`. All code must pass without errors:
+PHPStan runs at **level max** on `src` and `tests`. All code must pass without errors:
 
 ```bash
 composer analyse

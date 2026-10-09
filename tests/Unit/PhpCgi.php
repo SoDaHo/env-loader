@@ -75,17 +75,20 @@ class PhpCgi
             $ended = false;
             while (!$ended) {
                 $fields = unpack('Cversion/Ctype/nid/nlength/Cpadding', self::read($socket, 8, $deadline));
-                if ($fields === false) {
+                $type = $fields['type'] ?? null;
+                $length = $fields['length'] ?? null;
+                $padding = $fields['padding'] ?? null;
+                if (!is_int($type) || !is_int($length) || !is_int($padding)) {
                     throw new \RuntimeException('Invalid FastCGI record');
                 }
 
-                $content = self::read($socket, $fields['length'], $deadline);
-                self::read($socket, $fields['padding'], $deadline);
+                $content = self::read($socket, $length, $deadline);
+                self::read($socket, $padding, $deadline);
 
-                if ($fields['type'] === self::STDOUT) {
+                if ($type === self::STDOUT) {
                     $output .= $content;
                 }
-                $ended = $fields['type'] === self::END_REQUEST;
+                $ended = $type === self::END_REQUEST;
             }
             fclose($socket);
         } finally {
