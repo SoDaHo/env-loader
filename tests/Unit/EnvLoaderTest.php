@@ -690,6 +690,30 @@ class EnvLoaderTest extends TestCase
         $this->assertSame(['TEST_A' => '1', 'TEST_B' => '2', 'TEST_C' => '3'], $values);
     }
 
+    public function testPathIsOpenedWithItsStreamWrapper(): void
+    {
+        // The path is trusted input (README): a phar:// path is read like a file; a wrapper PHP cannot stat is
+        // not found. The archive is built in a child process, where phar.readonly can be switched off
+        $phar = $this->tempDir . '/archive.phar';
+        $script = '$phar = new Phar($argv[2]);'
+            . '$phar->addFromString("inner.env", "TEST_KEY=from-phar");'
+            . '$phar->setStub("<?php __HALT_COMPILER();");'
+            . 'echo "built";';
+        $this->assertSame('built', $this->runInChildProcess($script, $phar, ['-d', 'phar.readonly=0']));
+
+        $this->assertSame(['TEST_KEY' => 'from-phar'], EnvLoader::parse("phar://$phar/inner.env"));
+
+        $plain = $this->createEnvFile('TEST_KEY=plain');
+        foreach (["php://filter/read=string.toupper/resource=$plain", 'data://text/plain,TEST_KEY=1'] as $path) {
+            try {
+                EnvLoader::parse($path);
+                $this->fail('Expected FileNotFoundException');
+            } catch (FileNotFoundException $e) {
+                $this->assertSame("File not found: $path", $e->getMessage());
+            }
+        }
+    }
+
     public function testOpenBasedirRestrictionThrowsWithoutWarning(): void
     {
         $path = $this->createEnvFile('TEST_KEY=value');

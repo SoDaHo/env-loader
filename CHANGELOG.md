@@ -11,6 +11,7 @@
 - README: `FileNotFoundException` is also thrown for a path that is not a regular file (FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the message does not tell these cases apart.
 - README: the encoding is described (values are bytes, UTF-8 or ASCII; other encodings are not recognized), and production with the values in the environment of the process is no longer advised against: since 2.0 that environment wins over the file.
 - README: "thread-safe by design" is narrowed to what holds: in a long-running worker, load the file once when the worker starts, from a fixed path. A second `load()` with another file mixes with the first; for values per tenant or request, `parse()` and an object of your own. The example for writing a file creates it with mode 0600 outside the web root and replaces the old one in one step.
+- README: the path is trusted input (stream wrappers such as `phar://` are read), and messages name it as it was passed in.
 - Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
 
 ## [2.0.0] - 2026-10-03
