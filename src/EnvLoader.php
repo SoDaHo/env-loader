@@ -49,8 +49,10 @@ final class EnvLoader
             fn ($key) => $key !== ''
         );
 
-        // Check before writing, so a failed load leaves $_ENV untouched
+        // Check before writing, so a failed load leaves $_ENV untouched. Every missing key is collected first:
+        // one run names all of them
         $requiredFromProcess = [];
+        $missing = [];
         foreach ($required as $key) {
             if (array_key_exists($key, $values) || array_key_exists($key, $_ENV)) {
                 continue;
@@ -58,9 +60,19 @@ final class EnvLoader
 
             $value = self::processVariable($key);
             if ($value === false) {
-                throw new Exception\MissingRequiredKeyException("Missing required key: $key");
+                $missing[$key] = $key;
+                continue;
             }
             $requiredFromProcess[$key] = $value;
+        }
+
+        if ($missing !== []) {
+            // The message for a single key stays as it was in 2.0.0
+            throw new Exception\MissingRequiredKeyException(
+                count($missing) === 1
+                    ? 'Missing required key: ' . implode('', $missing)
+                    : 'Missing required keys: ' . implode(', ', $missing)
+            );
         }
 
         foreach ($values as $key => $value) {

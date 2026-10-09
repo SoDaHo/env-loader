@@ -67,7 +67,7 @@ What the web server passes with a request is not part of it. Under FastCGI (PHP-
 
 With `overwrite: true` the file wins: its values replace what `$_ENV` holds, whatever the process environment says.
 
-A required key may come from the file, from `$_ENV` or from the process environment; an empty value counts. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
+A required key may come from the file, from `$_ENV` or from the process environment; an empty value counts. If required keys are missing, the exception names all of them. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
 
 `load()` returns the values of the file, as `parse()` does — also those the environment has overruled:
 

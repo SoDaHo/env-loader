@@ -1871,6 +1871,42 @@ class EnvLoaderTest extends TestCase
         }
     }
 
+    /**
+     * @return array<string, array{array<string>|string, string}>
+     */
+    public static function missingRequiredKeysProvider(): array
+    {
+        return [
+            'in the order given' => [
+                ['TEST_C', 'TEST_IN_FILE', 'TEST_A', 'TEST_IN_ENV', 'TEST_B', 'TEST_IN_PROCESS'],
+                'Missing required keys: TEST_C, TEST_A, TEST_B',
+            ],
+            'a key given twice is named once' => [['TEST_A', 'TEST_B', 'TEST_A'], 'Missing required keys: TEST_A, TEST_B'],
+            'one key given twice' => [['TEST_A', 'TEST_A'], 'Missing required key: TEST_A'],
+            'as a string' => ['TEST_A, TEST_IN_FILE ,TEST_B', 'Missing required keys: TEST_A, TEST_B'],
+        ];
+    }
+
+    /**
+     * @param array<string>|string $required
+     */
+    #[DataProvider('missingRequiredKeysProvider')]
+    public function testEveryMissingRequiredKeyIsNamed(array|string $required, string $message): void
+    {
+        // One run names all of them, so a broken setup is fixed in one go; $_ENV stays as it was
+        $this->setProcessVariable('TEST_IN_PROCESS', 'process');
+        $_ENV = ['TEST_EXISTING' => 'original', 'TEST_IN_ENV' => 'env'];
+        $path = $this->createEnvFile('TEST_IN_FILE=value');
+
+        try {
+            EnvLoader::load($path, required: $required);
+            $this->fail('Expected MissingRequiredKeyException');
+        } catch (MissingRequiredKeyException $e) {
+            $this->assertSame($message, $e->getMessage());
+            $this->assertSame(['TEST_EXISTING' => 'original', 'TEST_IN_ENV' => 'env'], $_ENV);
+        }
+    }
+
     // ============================================
     // format() Method
     // ============================================
