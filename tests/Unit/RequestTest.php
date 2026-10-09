@@ -10,6 +10,9 @@ use Sodaho\EnvLoader\Exception\MissingRequiredKeyException;
 /**
  * Under FastCGI and CGI a request must not overrule the file: what the web server passes is no process
  * environment.
+ *
+ * The requests run through php-cgi. CI installs it and fails on a skipped test, so these tests guard that every
+ * getenv() call asks only the process (local_only): without it, the FastCGI tests see the request.
  */
 class RequestTest extends EnvLoaderTestCase
 {
@@ -158,17 +161,5 @@ class RequestTest extends EnvLoaderTestCase
 
         // Without getenv() only $_ENV and the file count, as in 1.x
         $this->assertSame('[false,"file"]' . MissingRequiredKeyException::class, $output);
-    }
-
-    public function testEveryGetenvCallAsksOnlyTheProcess(): void
-    {
-        // A syntactic pin for runs without php-cgi: no getenv() call without local_only
-        $code = '';
-        foreach (\PhpToken::tokenize((string) file_get_contents(dirname(__DIR__, 2) . '/src/EnvLoader.php')) as $token) {
-            $code .= $token->is([T_COMMENT, T_DOC_COMMENT]) ? '' : $token->text;
-        }
-        preg_match_all('/getenv\s*\([^()]*\)/', $code, $matches);
-
-        $this->assertSame(["getenv('GATEWAY_INTERFACE', true)", 'getenv($key, true)'], $matches[0]);
     }
 }
