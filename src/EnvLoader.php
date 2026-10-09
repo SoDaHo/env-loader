@@ -138,19 +138,14 @@ final class EnvLoader
             throw new Exception\FileNotFoundException("Not a file: $path");
         }
 
-        if (!is_readable($path)) {
-            throw new Exception\FileNotReadableException("File not readable: $path");
-        }
-
-        // Suppress warnings and handle failure explicitly (TOCTOU protection)
+        // Whether the file can be read is decided by opening it, not by asking first: is_readable() checks the
+        // real user instead of the effective one, and the file may change between the question and the opening.
+        // The warning is suppressed, the failure reported as an exception
         $handle = @fopen($path, 'rb');
 
-        // @codeCoverageIgnoreStart
         if ($handle === false) {
-            // Race condition: file was deleted/changed between checks and read
             throw new Exception\FileNotReadableException("Could not read file: $path");
         }
-        // @codeCoverageIgnoreEnd
 
         $result = [];
         $bomPossible = true;

@@ -4,9 +4,11 @@
 
 ### Changed
 - `MissingRequiredKeyException` names every missing required key, in the order given (`Missing required keys: A, B`), instead of only the first. The message for a single missing key is unchanged.
+- A file that exists but cannot be opened (permissions) throws `FileNotReadableException` with the message `Could not read file: …` instead of `File not readable: …`; the class is the same. Whether the file can be read is decided by opening it, no longer by `is_readable()` first, which asked for the real user instead of the effective one.
 
 ### Fixed
 - A NUL byte inside a value of the file throws `InvalidValueException`, quoted or not (it was accepted, while `format()` rejects it). The message names the key and the line, never the value. NUL at either end of a value is whitespace and removed, as before. A file in UTF-16 no longer passes with values that hold NUL bytes.
+- README: `FileNotFoundException` is also thrown for a path that is not a regular file (FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the message does not tell these cases apart.
 - Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
 
 ## [2.0.0] - 2026-10-03

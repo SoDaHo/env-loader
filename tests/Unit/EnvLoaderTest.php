@@ -389,6 +389,31 @@ class EnvLoaderTest extends TestCase
         EnvLoader::load($this->tempDir);
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function noRegularFileProvider(): array
+    {
+        return ['device' => ['/dev/null'], 'FIFO' => ['fifo']];
+    }
+
+    #[DataProvider('noRegularFileProvider')]
+    public function testPathThatIsNoRegularFileThrowsFileNotFoundException(string $name): void
+    {
+        // Only a regular file is read: a FIFO would block, a device has no end
+        $path = $name === 'fifo' ? $this->tempDir . '/fifo' : $name;
+        if ($name === 'fifo' && !(function_exists('posix_mkfifo') && posix_mkfifo($path, 0o600))) {
+            $this->markTestSkipped('Cannot create a FIFO here');
+        }
+        if (!file_exists($path)) {
+            $this->markTestSkipped("No $path here");
+        }
+
+        $this->expectException(FileNotFoundException::class);
+        $this->expectExceptionMessage("Not a file: $path");
+        EnvLoader::parse($path);
+    }
+
     public function testThrowsInvalidKeyException(): void
     {
         $path = $this->createEnvFile('123INVALID=value');
@@ -416,7 +441,7 @@ class EnvLoaderTest extends TestCase
         chmod($path, 0o000);
 
         // A privileged user (root in CI containers) reads the file anyway: read it as "nobody" instead.
-        // Then only the read itself fails: is_readable() checks the real user, not the effective one.
+        // Either way it is the opening of the file that fails, and the message is the same
         $privileged = @file_get_contents($path) !== false;
         $user = null;
 
@@ -441,7 +466,7 @@ class EnvLoaderTest extends TestCase
             EnvLoader::load($path);
             $this->fail('Expected FileNotReadableException');
         } catch (FileNotReadableException $e) {
-            $this->assertSame(($privileged ? 'Could not read file: ' : 'File not readable: ') . $path, $e->getMessage());
+            $this->assertSame("Could not read file: $path", $e->getMessage());
         } finally {
             if ($user !== null) {
                 $this->assertTrue(posix_seteuid($user), 'Privileges could not be restored');
