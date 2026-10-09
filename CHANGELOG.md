@@ -8,7 +8,7 @@ Fixes and documentation, no new API. What a caller may notice is listed under "U
 
 ### Changed
 - `MissingRequiredKeyException` names every missing required key, in the order given (`Missing required keys: A, B`), instead of only the first. The message for a single missing key is unchanged.
-- A file that exists but cannot be opened (permissions) throws `FileNotReadableException` with the message `Could not read file: …` instead of `File not readable: …`; the class is the same. Whether the file can be read is decided by opening it, no longer by `is_readable()` first, which asked for the real user instead of the effective one.
+- A file that exists but cannot be opened (permissions) throws `FileNotReadableException` with the message `Could not read file: …` instead of `File not readable: …`; the class is the same. Whether the file can be read is decided by opening it, no longer by `is_readable()` first, which asked for the real user instead of the effective one: a file that `is_readable()` rejected but that can be opened is read now.
 - Development (not part of the package): `composer.lock` is committed and CI checks it with `composer validate --strict`; CI installs php-cgi so the FastCGI and CGI tests run, and fails on a skipped test; PHPStan runs on level max; the actions are pinned to commits and the workflow may only read the repository. The tests are split by theme.
 
 ### Fixed
@@ -27,7 +27,7 @@ Fixes and documentation, no new API. What a caller may notice is listed under "U
 Code that loads valid files with valid arguments needs no change. A caller can notice these differences:
 - **NUL in a value:** `parse()` and `load()` throw `InvalidValueException` where 2.0.0 returned the value. `catch (EnvLoaderException $e)` catches it; code that catches the errors of the file class by class needs `InvalidValueException` as well.
 - **Several missing required keys:** the message is `Missing required keys: A, B` (2.0.0 named the first one: `Missing required key: A`). With one missing key the message is unchanged; code that compares the message has to accept both forms.
-- **File that cannot be opened:** `FileNotReadableException` says `Could not read file: …` (2.0.0: `File not readable: …`); the class is the same.
+- **Opening decides whether a file is read:** the check with `is_readable()` before opening is gone. In 2.0.0 a file that `is_readable()` reported as not readable threw `FileNotReadableException` with `File not readable: …`; now it is opened, and read where that works. The two can disagree where the real and the effective user differ, or for a stream wrapper whose stat shows no read permission. If opening fails, the message is `Could not read file: …`, which 2.0.0 already used where the check passed but opening failed; the class is the same.
 - **Stray bytes of a BOM, or two BOMs, at the start of the file:** `InvalidKeyException` for line 1, where 2.0.0 read the file.
 - **An entry of `required` without a string form** (an array, an object without `__toString()`): `\InvalidArgumentException`, which is no `EnvLoaderException` (2.0.0: a warning and the key `Array`, or an `Error` for such an object).
 
