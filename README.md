@@ -19,6 +19,8 @@ If you need variable expansion, multiline values, or loaded values that `getenv(
 composer require sodaho/env-loader
 ```
 
+Upgrading from 1.x: what to change is listed in the [changelog](https://github.com/SoDaHo/env-loader/blob/main/CHANGELOG.md#upgrading-from-1x). It is not part of the installed package.
+
 ## Usage
 
 ### Basic Usage

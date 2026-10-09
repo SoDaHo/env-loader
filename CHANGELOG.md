@@ -14,6 +14,7 @@
 - README: "thread-safe by design" is narrowed to what holds: in a long-running worker, load the file once when the worker starts, from a fixed path. A second `load()` with another file mixes with the first; for values per tenant or request, `parse()` and an object of your own. The example for writing a file creates it with mode 0600 outside the web root and replaces the old one in one step.
 - README: the path is trusted input (stream wrappers such as `phar://` are read), and messages name it as it was passed in.
 - README: the example that compares the environment with the file no longer warns when the key is not in the file.
+- README: links to the upgrade guide from 1.x in this changelog, which the installed package does not contain.
 - CHANGELOG: 1.0.0 was released on 2026-03-19 (the date of its tag), not on 2026-03-15.
 - Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
 
