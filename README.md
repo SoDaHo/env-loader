@@ -7,7 +7,7 @@ Lightweight .env file loader for PHP. Zero dependencies.
 There are established .env loaders for PHP, most notably [vlucas/phpdotenv](https://github.com/vlucas/phpdotenv). This library exists because we needed something simpler:
 
 - **Zero dependencies** — Nothing to install besides this package.
-- **Thread-safe by design** — Only writes to `$_ENV`. No `putenv()`, which is not thread-safe in async runtimes (Swoole, RoadRunner, FrankenPHP).
+- **Safe in async runtimes when loaded once** — Only writes to `$_ENV`, no `putenv()`, which is not thread-safe in async runtimes (Swoole, RoadRunner, FrankenPHP). Load the file once when the worker starts, from a fixed path (see [Why $_ENV Only?](#why-_env-only)).
 - **No magic** — No variable expansion (`${VAR}`), no multiline values, no interpreted escape sequences (`\n`, `\t`). What you write is what you get.
 - **Minimal footprint** — Easy to audit, easy to understand.
 
@@ -95,7 +95,13 @@ print_r($values);
 // Returns the content as a string; every value is double-quoted and escaped
 $content = EnvLoader::format(['DB_HOST' => 'localhost', 'DB_PASSWORD' => 'p@ss #1 "x"']);
 
-file_put_contents('.env', $content);
+// Outside the web root, readable only by its owner: tempnam() creates the file with mode 0600 (in $dir, which
+// must be writable). rename() replaces the old file in one step, so no reader sees a file half written
+$dir = '/srv/app';
+$tmp = tempnam($dir, '.env');
+if ($tmp === false || file_put_contents($tmp, $content) === false || !rename($tmp, "$dir/.env")) {
+    throw new RuntimeException('Could not write .env');
+}
 ```
 
 `parse()` reads formatted content back unchanged, so a script that generates a .env file (e.g. a container entrypoint) should use it instead of writing `KEY=$value` lines itself. Values that are not strings or contain a line break or NUL byte throw `InvalidValueException`.
@@ -207,7 +213,9 @@ This library intentionally writes **only to `$_ENV`**, not `putenv()` or `$_SERV
 
 ...concurrent requests can overwrite each other's environment variables, causing hard-to-debug race conditions.
 
-`$_ENV` is process-local and safe. Use `$_ENV['KEY']` instead of `getenv('KEY')` in your application.
+`$_ENV` is process-local: no other process sees it, and nothing outside PHP changes it. Use `$_ENV['KEY']` instead of `getenv('KEY')` in your application.
+
+**Load once per worker.** In a long-running worker (Swoole, RoadRunner, FrankenPHP in worker mode) `$_ENV` lives as long as the worker and is shared by every request it handles. Call `load()` once when the worker starts, with a fixed path. A second `load()` with another file does not replace the first: without `overwrite` the keys already in `$_ENV` keep their values, and keys that only the first file has stay, with `overwrite` as well — `load('a.env'); load('b.env');` mixes both. For configuration per tenant or per request, use `parse()` and keep the values in an object of your own instead of `$_ENV`.
 
 `load()` reads the process environment (`getenv($key, true)`) to let its variables win over the file. It never changes it.
 
@@ -225,7 +233,7 @@ $host = getenv('DB_HOST');
 - Production where the environment of the process (Docker, systemd, `env[NAME]` in a PHP-FPM pool) sets the values: it wins over the file, which only fills the gaps
 - Shared hosting where system ENV is not available
 - Simple projects without framework
-- **Modern async PHP** (Swoole, RoadRunner, FrankenPHP)
+- **Modern async PHP** (Swoole, RoadRunner, FrankenPHP), loaded once when the worker starts
 
 ## When NOT to Use
 

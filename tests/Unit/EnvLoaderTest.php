@@ -1397,6 +1397,24 @@ class EnvLoaderTest extends TestCase
         $this->assertSame([], EnvLoader::load($this->createEnvFile('')));
     }
 
+    public function testSecondLoadMixesWithTheFirst(): void
+    {
+        // $_ENV belongs to the process: another file loaded later does not replace the first one (README:
+        // load once per worker; parse() for values per tenant)
+        $_ENV = [];
+        $first = $this->tempDir . '/first.env';
+        $second = $this->tempDir . '/second.env';
+        $this->assertNotFalse(file_put_contents($first, "TEST_NAME=first\nTEST_ONLY_FIRST=1"));
+        $this->assertNotFalse(file_put_contents($second, 'TEST_NAME=second'));
+
+        EnvLoader::load($first);
+        EnvLoader::load($second);
+        $this->assertSame(['TEST_NAME' => 'first', 'TEST_ONLY_FIRST' => '1'], $_ENV);
+
+        EnvLoader::load($second, overwrite: true);
+        $this->assertSame(['TEST_NAME' => 'second', 'TEST_ONLY_FIRST' => '1'], $_ENV);
+    }
+
     public function testClassIsFinal(): void
     {
         $this->assertTrue(new \ReflectionClass(EnvLoader::class)->isFinal());
