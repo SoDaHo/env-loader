@@ -20,6 +20,10 @@ use Sodaho\EnvLoader\Exception\MissingRequiredKeyException;
 use Sodaho\EnvLoader\Exception\TrailingCharactersException;
 use Sodaho\EnvLoader\Exception\UnterminatedQuoteException;
 
+/**
+ * Tests of EnvLoader. Every test gets a directory of its own for its files; $_ENV and the variables a test sets
+ * in the process environment are restored after it.
+ */
 class EnvLoaderTest extends TestCase
 {
     private string $tempDir;

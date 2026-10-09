@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 namespace Sodaho\EnvLoader;
 
+/**
+ * Reads .env files: parse() returns the values of a file, load() also writes them to $_ENV, format() turns values
+ * into .env content that parse() reads back unchanged.
+ *
+ * Invariants: nothing but $_ENV is written (no putenv(), no $_SERVER); a load() that throws leaves $_ENV as it
+ * was; messages and stack trace arguments never carry a value or a raw line of the file, only the path, the line
+ * number and, once it is valid, the key.
+ */
 final class EnvLoader
 {
     private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
@@ -200,23 +208,19 @@ final class EnvLoader
     /**
      * The lines of a file, numbered from 1. LF, CRLF and a single CR each end a line.
      *
-     * Reads in chunks with fread(), which tells a failed read (false) from one that brought no data ('');
-     * fgets() does not. feof() then tells a stream that has stopped from the end of the file. What was read is
-     * cut at its line endings without building an array of lines, so empty lines count for the line number,
-     * but cost no memory.
+     * Reads in chunks with fread(): unlike fgets(), it tells a failed read (false) from one without data (''),
+     * and feof() then tells a stream that has stopped from the end of the file. Chunks are cut at their line
+     * endings without an array of lines, so empty lines count for the line number but cost no memory.
      *
-     * The generator ends early if a read fails or brings no data before the end of the file: a line is
-     * never delivered cut off, and never joined across such a read. (As in 1.x, @ does not keep an error
-     * handler of the application from being called. If it throws for the message of a failed read (a notice
-     * for a file on disk), its exception reaches the caller instead. If it throws while the file is closed,
-     * the caller gets that exception, whatever parse() would have returned or thrown; an exception thrown
-     * before becomes its previous one.)
+     * Ends early if a read fails or brings no data before the end of the file: a line is never handed out
+     * cut off, nor joined across such a read. The @ does not keep an error handler of the application from
+     * being called; what it throws reaches the caller of parse() (README, FileNotReadableException).
      *
      * @param resource $handle
      *
-     * @return \Generator<int, string, mixed, bool> The lines; its return value tells whether the end of the
-     *                                              file was reached. That is decided here, once, at the moment
-     *                                              reading stops: asking the stream again later may give another answer
+     * @return \Generator<int, string, mixed, bool> The lines; returns whether the end of the file was reached,
+     *                                              decided once, where reading stops: the stream may answer
+     *                                              differently when asked later
      */
     private static function lines($handle): \Generator
     {
@@ -313,6 +317,11 @@ final class EnvLoader
     }
 
     /**
+     * One line of the file: null for an empty line or a comment, otherwise key and value.
+     *
+     * A line that is neither must be an assignment, so a typo cannot make a key vanish. The key is checked
+     * before the value is parsed: only a valid key may appear in a message, never a value or the line itself.
+     *
      * @param string $location File and line for error messages - messages never contain file content
      *
      * @throws Exception\InvalidLineException
@@ -380,6 +389,9 @@ final class EnvLoader
     }
 
     /**
+     * The value after the first "=", as it is meant: a quoted value goes to the parser for its quotes, an
+     * unquoted one loses its inline comment and the whitespace around it.
+     *
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\TrailingCharactersException
      */
