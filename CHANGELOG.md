@@ -2,12 +2,18 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-09
+
+Fixes and documentation, no new API. What a caller may notice is listed under "Changed".
+
 ### Changed
 - `MissingRequiredKeyException` names every missing required key, in the order given (`Missing required keys: A, B`), instead of only the first. The message for a single missing key is unchanged.
 - A file that exists but cannot be opened (permissions) throws `FileNotReadableException` with the message `Could not read file: …` instead of `File not readable: …`; the class is the same. Whether the file can be read is decided by opening it, no longer by `is_readable()` first, which asked for the real user instead of the effective one.
+- Development (not part of the package): `composer.lock` is committed and CI checks it with `composer validate --strict`; CI installs php-cgi so the FastCGI and CGI tests run, and fails on a skipped test; PHPStan runs on level max; the actions are pinned to commits and the workflow may only read the repository. The tests are split by theme.
 
 ### Fixed
 - A NUL byte inside a value of the file throws `InvalidValueException`, quoted or not (it was accepted, while `format()` rejects it). The message names the key and the line, never the value. NUL at either end of a value is whitespace and removed, as before. A file in UTF-16 no longer passes with values that hold NUL bytes.
+- Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
 - An entry of `required` that has no string form (an array, an object without `__toString()`) throws `\InvalidArgumentException` naming its position. An array raised the warning "Array to string conversion" and was required as the key `Array`; such an object threw an `Error`.
 - README: `FileNotFoundException` is also thrown for a path that is not a regular file (FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the message does not tell these cases apart.
 - README: the encoding is described (values are bytes, UTF-8 or ASCII; other encodings are not recognized), and production with the values in the environment of the process is no longer advised against: since 2.0 that environment wins over the file.
@@ -16,7 +22,6 @@
 - README: the example that compares the environment with the file no longer warns when the key is not in the file.
 - README: links to the upgrade guide from 1.x in this changelog, which the installed package does not contain.
 - CHANGELOG: 1.0.0 was released on 2026-03-19 (the date of its tag), not on 2026-03-15.
-- Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
 
 ## [2.0.0] - 2026-10-03
 
@@ -100,7 +105,8 @@ Breaks compatibility with 1.x; what to change is listed under "Upgrading from 1.
 - PHPStan level 9 static analysis.
 - GitHub Actions CI for PHP 8.2, 8.3, 8.4, 8.5.
 
-[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/SoDaHo/env-loader/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/SoDaHo/env-loader/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/SoDaHo/env-loader/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/SoDaHo/env-loader/compare/v1.0.0...v1.1.0
