@@ -322,6 +322,32 @@ class ParseErrorTest extends EnvLoaderTestCase
         }
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function partOfABomBeforeACommentProvider(): array
+    {
+        return [
+            'last byte of a BOM' => ["\xBF# comment\nTEST_KEY=value"],
+            'first two bytes of a BOM' => ["\xEF\xBB# comment\nTEST_KEY=value"],
+            'two BOMs' => ["\xEF\xBB\xBF\xEF\xBB\xBF# comment\nTEST_KEY=value"],
+        ];
+    }
+
+    #[DataProvider('partOfABomBeforeACommentProvider')]
+    public function testPartOfABomBeforeACommentLineThrowsInvalidLineException(string $content): void
+    {
+        // The stray bytes keep the line from being a comment; without "=" it is no assignment either
+        $path = $this->createEnvFile($content);
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected InvalidLineException');
+        } catch (InvalidLineException $e) {
+            $this->assertSame("Missing \"=\" in $path on line 1", $e->getMessage());
+        }
+    }
+
     public function testSourceCallsNoRegexOrLocaleFunction(): void
     {
         // A warning raised inside a preg call (PCRE cannot allocate JIT memory on macOS or under SELinux) carries

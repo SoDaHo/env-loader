@@ -16,12 +16,13 @@ Fixes and documentation, no new API. What a caller may notice is listed under "U
 
 ### Fixed
 - A NUL byte inside a value of the file throws `InvalidValueException`, quoted or not (it was accepted, while `format()` rejects it). The message names the key and the line, never the value. NUL at either end of a value is whitespace and removed, as before. A file in UTF-16 no longer yields values with NUL bytes between their letters; it is still neither recognized nor reliably rejected.
-- Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw `InvalidKeyException` for line 1 now.
+- Only a whole UTF-8 BOM is skipped, and only one: the bytes `EF`, `BB` and `BF` at the start of the file were removed in any number and order, so a file starting with a stray byte of a BOM, or with two BOMs, passed. They throw for line 1 now: `InvalidKeyException`, or `InvalidLineException` where that line has no `=` (a comment line, say).
 - An entry of `required` that has no string form (an array, an object without `__toString()`) throws `\InvalidArgumentException` naming its position. An array raised the warning "Array to string conversion" and was required as the key `Array`; such an object threw an `Error`.
 - README: `FileNotFoundException` is also thrown for a path that is not a regular file (FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the message does not tell these cases apart.
 - README: the encoding is described (values are bytes, UTF-8 or ASCII; other encodings are not recognized), and production with the values in the environment of the process is no longer advised against: since 2.0 that environment wins over the file.
 - README: "thread-safe by design" is narrowed to what holds: in a long-running worker, load the file once when the worker starts, from a fixed path. A second `load()` with another file mixes with the first; for values per tenant or request, `parse()` and an object of your own. The example for writing a file creates it with mode 0600 outside the web root and replaces the old one in one step.
 - README: the path is trusted input (stream wrappers such as `phar://` are read), and messages name it as it was passed in.
+- README and class documentation: the arguments holding raw lines or values are hidden from the stack traces of the exceptions this library throws. The backtrace PHP prints for a fatal error, such as memory running out on a huge line, can show the start of a line; `zend.exception_ignore_args=1` keeps the arguments out of it.
 - README: the example that compares the environment with the file no longer warns when the key is not in the file.
 - README: links to the upgrade guide from 1.x in this changelog, which the installed package does not contain.
 - CHANGELOG: 1.0.0 was released on 2026-03-19 (the date of its tag), not on 2026-03-15.
@@ -31,7 +32,7 @@ Code that loads valid files with valid arguments needs no change. A caller can n
 - **NUL in a value:** `parse()` and `load()` throw `InvalidValueException` where 2.0.0 returned the value. `catch (EnvLoaderException $e)` catches it; code that catches the errors of the file class by class needs `InvalidValueException` as well.
 - **Several missing required keys:** the message is `Missing required keys: A, B` (2.0.0 named the first one: `Missing required key: A`). With one missing key the message is unchanged; code that compares the message has to accept both forms.
 - **Opening decides whether a file is read:** the check with `is_readable()` before opening is gone. In 2.0.0 a file that `is_readable()` reported as not readable threw `FileNotReadableException` with `File not readable: …`; now it is opened, and read where that works. The two can disagree where the real and the effective user differ, or for a stream wrapper whose stat shows no read permission. If opening fails, the message is `Could not read file: …`, which 2.0.0 already used where the check passed but opening failed; the class is the same.
-- **Stray bytes of a BOM, or two BOMs, at the start of the file:** `InvalidKeyException` for line 1, where 2.0.0 read the file.
+- **Stray bytes of a BOM, or two BOMs, at the start of the file:** `InvalidKeyException` for line 1 (`InvalidLineException` where that line has no `=`, a comment line, say), where 2.0.0 read the file.
 - **An entry of `required` without a string form** (an array, an object without `__toString()`): `\InvalidArgumentException`, which is no `EnvLoaderException` (2.0.0: a warning and the key `Array`, or an `Error` for such an object).
 
 ## [2.0.0] - 2026-10-03
