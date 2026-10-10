@@ -274,6 +274,10 @@ $host = getenv('DB_HOST');
 - When you need multiline values
 - When you must support legacy code using `getenv()`
 
+## Security
+
+Report a vulnerability privately, as the [security policy](https://github.com/SoDaHo/env-loader/blob/main/SECURITY.md) describes (it is not part of the installed package). Under PHP-FPM and CGI set `variables_order = "GPCS"`, pass a fixed local path, and check secrets for length and form after loading.
+
 ## Requirements
 
 - PHP ^8.5

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `SECURITY.md`: how to report a vulnerability (GitHub's private vulnerability reporting), which versions get fixes (the latest release only), and what is outside the reach of the library.
 - `rejectRequestVariables` for `load()`: throws the new `RequestVariableException` before anything is written, where a key named like a request variable (`HTTP_*`, `REDIRECT_*`, a CGI meta-variable such as `CONTENT_TYPE`, `QUERY_STRING` or `REMOTE_USER`) would take its value from `$_ENV` while PHP fills `$_ENV` with the request (under PHP-FPM or CGI with an `E` in `variables_order`); a value equal to the variable of the process environment passes. Without it, and with `GPCS`, nothing changes.
 - `requireNonEmpty` for `load()`: a required key also fails with an empty value. Checked is the value `load()` leaves in `$_ENV`, so also an empty variable of the environment that wins over the file (Docker Compose sets one where the host has no value) makes the load fail instead of leaving an empty secret. The message names such keys as `Empty required key: A` (`Empty required keys: A, B`), after the missing ones, separated by `; `.
 - `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0 did.

@@ -9,5 +9,6 @@
 /phpunit.xml.dist export-ignore
 /CHANGELOG.md export-ignore
 /CONTRIBUTING.md export-ignore
+/SECURITY.md export-ignore
 # The lock pins the tools this repository is developed with; a library is installed by its constraints, not by a lock
 /composer.lock export-ignore
