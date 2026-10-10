@@ -7,6 +7,7 @@
 - Option `localOnly` for `parse()` and `load()`: a stream wrapper URL throws `FileNotFoundException`.
 ### Changed
 - `parse()` reads the whole file before it parses a line: a failed read throws `FileNotReadableException` first.
+- A replaced plain file wrapper is opened with mode `rbn` (was `rb`) and must report a regular file via `stream_stat()`.
 ### Fixed
 - A local file swapped for a FIFO or device after the look at its name throws `FileNotFoundException`; it was read.
 - For a local file, warnings no longer reach the application's error handler; they are the exception's previous.
@@ -39,9 +40,8 @@
 - Stay on `^1.1` until the application runs on PHP 8.5.
 - Drop copying the process environment into `$_ENV` before `load()`; `$_ENV += EnvLoader::parse($p)` is the 1.x load.
 - Replace `extends EnvLoader` with a class that calls `EnvLoader::load()`, `parse()` and `format()`.
-- Add the `=` to lines without one, or turn them into comments.
 - Catch `TrailingCharactersException` or `EnvLoaderException` where `UnterminatedQuoteException` was caught.
-- Quote a value that has whitespace before `#`; a CR inside a value now ends the line.
+- Add `=` to lines without one; quote values with whitespace before `#`; a CR inside a value now ends the line.
 
 Older versions: see the git tags.
 
