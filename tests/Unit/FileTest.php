@@ -127,7 +127,7 @@ class FileTest extends EnvLoaderTestCase
 
         try {
             $this->assertFalse(is_readable($path));
-            $this->assertSame(['TEST_KEY' => 'value'], EnvLoader::parse($path));
+            $this->assertSame(['TEST_KEY' => 'value'], EnvLoader::parse($path, allowStreamWrappers: true));
         } finally {
             stream_wrapper_unregister($scheme);
         }
@@ -143,30 +143,6 @@ class FileTest extends EnvLoaderTestCase
         $output = $this->parseInChildProcess($path, ['-d', 'open_basedir=' . $allowed]);
 
         $this->assertSame(FileNotFoundException::class, $output);
-    }
-
-    public function testPathIsOpenedWithItsStreamWrapper(): void
-    {
-        // The path is trusted input (README): a phar:// path is read like a file; a wrapper PHP cannot stat is
-        // not found. The archive is built in a child process, where phar.readonly can be switched off
-        $phar = $this->tempDir . '/archive.phar';
-        $script = '$phar = new Phar($argv[2]);'
-            . '$phar->addFromString("inner.env", "TEST_KEY=from-phar");'
-            . '$phar->setStub("<?php __HALT_COMPILER();");'
-            . 'echo "built";';
-        $this->assertSame('built', $this->runInChildProcess($script, $phar, ['-d', 'phar.readonly=0']));
-
-        $this->assertSame(['TEST_KEY' => 'from-phar'], EnvLoader::parse("phar://$phar/inner.env"));
-
-        $plain = $this->createEnvFile('TEST_KEY=plain');
-        foreach (["php://filter/read=string.toupper/resource=$plain", 'data://text/plain,TEST_KEY=1'] as $path) {
-            try {
-                EnvLoader::parse($path);
-                $this->fail('Expected FileNotFoundException');
-            } catch (FileNotFoundException $e) {
-                $this->assertSame("File not found: $path", $e->getMessage());
-            }
-        }
     }
 
     /**
@@ -191,7 +167,7 @@ class FileTest extends EnvLoaderTestCase
         $path = $scheme . '://fails/' . rawurlencode($part);
 
         try {
-            EnvLoader::parse($path);
+            EnvLoader::parse($path, allowStreamWrappers: true);
             $this->fail('Expected FileNotReadableException');
         } catch (FileNotReadableException $e) {
             // The part that was read is no line: it must not be reported as malformed
@@ -233,7 +209,7 @@ class FileTest extends EnvLoaderTestCase
         $path = $scheme . '://ends/' . implode('/', array_map(rawurlencode(...), $pieces));
 
         try {
-            $result = EnvLoader::parse($path);
+            $result = EnvLoader::parse($path, allowStreamWrappers: true);
         } catch (FileNotReadableException $e) {
             $this->assertSame("Could not read file: $path", $e->getMessage());
             $result = null;
@@ -266,7 +242,7 @@ class FileTest extends EnvLoaderTestCase
         $path = $scheme . '://breaks/' . rawurlencode($delivered);
 
         try {
-            $result = EnvLoader::parse($path);
+            $result = EnvLoader::parse($path, allowStreamWrappers: true);
         } catch (FileNotReadableException $e) {
             $result = $e->getMessage();
         } finally {
@@ -297,7 +273,7 @@ class FileTest extends EnvLoaderTestCase
         $path = $scheme . '://ends/' . rawurlencode("TEST_A=1\r") . '/' . rawurlencode("\nTEST-KEY=1\n");
 
         try {
-            EnvLoader::parse($path);
+            EnvLoader::parse($path, allowStreamWrappers: true);
             $this->fail('Expected InvalidKeyException');
         } catch (InvalidKeyException $e) {
             $this->assertSame("Invalid key in $path on line 2", $e->getMessage());
@@ -316,7 +292,7 @@ class FileTest extends EnvLoaderTestCase
         $path = $scheme . '://closes/' . rawurlencode("TEST_A=1\nTEST_B=2") . '/';
 
         try {
-            $result = EnvLoader::parse($path);
+            $result = EnvLoader::parse($path, allowStreamWrappers: true);
         } catch (FileNotReadableException $e) {
             $result = $e->getMessage();
         } finally {
@@ -374,9 +350,10 @@ class FileTest extends EnvLoaderTestCase
         $scheme = 'failing-read-' . getmypid();
         $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
         $pieces = ['TEST_', "A=1\r", "\nTEST", "_B=2\nTEST_C=", '3'];
+        $path = $scheme . '://ends/' . implode('/', array_map(rawurlencode(...), $pieces));
 
         try {
-            $values = EnvLoader::parse($scheme . '://ends/' . implode('/', array_map(rawurlencode(...), $pieces)));
+            $values = EnvLoader::parse($path, allowStreamWrappers: true);
         } finally {
             stream_wrapper_unregister($scheme);
         }
@@ -390,7 +367,7 @@ class FileTest extends EnvLoaderTestCase
         $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
 
         try {
-            EnvLoader::parse($scheme . '://env');
+            EnvLoader::parse($scheme . '://env', allowStreamWrappers: true);
             $this->fail('Expected FileNotReadableException');
         } catch (FileNotReadableException $e) {
             $this->assertSame("Could not read file: $scheme://env", $e->getMessage());

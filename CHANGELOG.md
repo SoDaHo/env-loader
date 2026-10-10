@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0 did.
+
 ### Changed
 - Development (not part of the package): CI looks up the locked development tools in the security advisories (`composer audit`; an unreachable Packagist only warns), and a job fails after ten minutes instead of hanging.
 
@@ -10,7 +13,11 @@
 - The class documentation of `FileNotFoundException`, `FileNotReadableException`, `InvalidValueException` and `MissingRequiredKeyException` names every case that throws them (it described one each).
 - README: `export` is followed by a space or a tab, as in a shell; after another whitespace (vertical tab, form feed) it is part of the key, which is invalid.
 
+### Security
+- `parse()` and `load()` read a local file only: a URL that PHP would open with a stream wrapper (a scheme followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Stream wrapper not allowed: …` before anything is done with it. A wrapper could read an archive or a file on another host where a path to a configuration file was meant.
+
 ### Upgrading from 2.0.1
+- **A URL as the path** (`phar://`, `file://`, …): `FileNotFoundException` with `Stream wrapper not allowed: …`, where 2.0.1 opened it with its wrapper. Pass a local path (drop `file://`), or pass `allowStreamWrappers: true` to keep the wrapper. URLs that 2.0.1 could not stat (`http://`, `php://filter`, `data:`) threw `FileNotFoundException` with `File not found: …`; the class stays, the message is the new one.
 - **A BOM after a line of whitespace:** the file is read, where 2.0.1 threw `InvalidKeyException`.
 
 ## [2.0.1] - 2026-10-09

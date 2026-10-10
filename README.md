@@ -48,6 +48,9 @@ EnvLoader::load('.env', required: 'DB_HOST,DB_NAME');
 
 // Combine options
 EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
+
+// Open a URL with its stream wrapper (otherwise only a local file is read)
+EnvLoader::load('phar://' . __DIR__ . '/app.phar/.env', allowStreamWrappers: true);
 ```
 
 Without `overwrite`, the environment wins over the file. For every key of the file, `load()` uses the first value it finds:
@@ -175,7 +178,7 @@ try {
 
 | Exception | When |
 |-----------|------|
-| `FileNotFoundException` | File does not exist, is not a regular file (directory, FIFO, device) or cannot be reached (`open_basedir`, directory permissions) |
+| `FileNotFoundException` | File does not exist, is not a regular file (directory, FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the path is a URL of a stream wrapper (without `allowStreamWrappers`) |
 | `FileNotReadableException` | File exists but cannot be read, or reading it failed or stopped before its end (an error handler of yours that throws even for messages suppressed with `@` throws instead; if it throws while the file is closed, you get that exception, whatever `parse()` would have returned or thrown, with an exception thrown before as its previous) |
 | `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
@@ -188,7 +191,7 @@ An entry of `required` that has no string form (an array, an object without `__t
 
 Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from the stack traces of these exceptions as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
 
-Messages name the path as it was passed in, so keep secrets out of the path. The path is trusted input: `parse()` and `load()` open it with `fopen()`, so a stream wrapper that PHP can stat is used as well (a `phar://` path is read like a file; `http://` or `php://filter` throw `FileNotFoundException`). Never build the path from a request.
+Messages name the path as it was passed in, so keep secrets out of the path. The path is a local file: a URL that PHP would open with a stream wrapper — a scheme followed by `://` (`phar://`, `file://`, `php://`, `ftp://`, …) or `data:` — throws `FileNotFoundException` (`Stream wrapper not allowed: …`) before anything is done with it. `allowStreamWrappers: true` opens it with its wrapper, as 2.0 did: a wrapper that PHP can stat is read (a `phar://` path like a file), `http://` or `php://filter` throw `FileNotFoundException`. Either way the path is trusted input: never build it from a request.
 
 ## Key Naming Rules
 

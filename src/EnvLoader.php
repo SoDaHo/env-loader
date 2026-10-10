@@ -18,6 +18,9 @@ final class EnvLoader
 {
     private const KEY_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
 
+    // What PHP takes for the scheme of a URL
+    private const SCHEME_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-.';
+
     // Bytes asked for with one read
     private const CHUNK_SIZE = 8192;
 
@@ -31,6 +34,7 @@ final class EnvLoader
      * otherwise it takes the value of the process environment, otherwise the one of the file.
      *
      * @param array<string>|string $required Required keys - array or comma-separated string
+     * @param bool $allowStreamWrappers Open a URL (phar://, file://, ...) with its stream wrapper, see parse()
      *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
@@ -47,9 +51,10 @@ final class EnvLoader
     public static function load(
         string $path,
         bool $overwrite = false,
-        array|string $required = []
+        array|string $required = [],
+        bool $allowStreamWrappers = false,
     ): array {
-        $values = self::parse($path);
+        $values = self::parse($path, $allowStreamWrappers);
 
         // Handle required keys - normalize to a list of trimmed names
         if (is_string($required)) {
@@ -141,6 +146,10 @@ final class EnvLoader
     /**
      * Parse a .env file and return key-value pairs without setting $_ENV.
      *
+     * The path is a local file. A URL that PHP would open with a stream wrapper is rejected before anything is
+     * done with it, unless $allowStreamWrappers says otherwise: a wrapper can reach other hosts (ftp://) or read an
+     * archive (phar://), which a path to a configuration file is not expected to do.
+     *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
      * @throws Exception\InvalidLineException
@@ -151,8 +160,12 @@ final class EnvLoader
      *
      * @return array<string, string>
      */
-    public static function parse(string $path): array
+    public static function parse(string $path, bool $allowStreamWrappers = false): array
     {
+        if (!$allowStreamWrappers && self::isStreamUrl($path)) {
+            throw new Exception\FileNotFoundException("Stream wrapper not allowed: $path");
+        }
+
         // Suppress the open_basedir warning: every failure is reported as an exception
         if (!@file_exists($path)) {
             throw new Exception\FileNotFoundException("File not found: $path");
@@ -206,6 +219,18 @@ final class EnvLoader
         }
 
         return $result;
+    }
+
+    /**
+     * Whether PHP opens the path with a stream wrapper, decided as PHP decides it: a scheme of at least two
+     * characters followed by "://" (php://, phar://, file://, also one no wrapper is registered for), or "data:".
+     * Only the start of the path counts, so a local path may contain "://" further on.
+     */
+    private static function isStreamUrl(string $path): bool
+    {
+        $scheme = strspn($path, self::SCHEME_CHARACTERS);
+
+        return ($scheme > 1 && substr($path, $scheme, 3) === '://') || str_starts_with($path, 'data:');
     }
 
     /**
