@@ -53,7 +53,7 @@ final class EnvLoader
      * @param bool $requireNonEmpty The value of a required key must not be empty either
      * @param bool $rejectRequestVariables Throw where a key named like a request variable (HTTP_*, CGI) would take
      *                                     its value from $_ENV while PHP fills $_ENV with the request
-     * @param bool $allowStreamWrappers Open a URL (phar://, file://, ...) with its stream wrapper, see parse()
+     * @param bool $localOnly Read a local file only, no URL of a stream wrapper (phar://, file://, ...), see parse()
      *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
@@ -74,9 +74,9 @@ final class EnvLoader
         array|string $required = [],
         bool $requireNonEmpty = false,
         bool $rejectRequestVariables = false,
-        bool $allowStreamWrappers = false,
+        bool $localOnly = false,
     ): array {
-        $values = self::parse($path, $allowStreamWrappers);
+        $values = self::parse($path, $localOnly);
         $names = self::requiredNames($required);
 
         // The value of every key is decided once, for the check and for writing: what passes the check is what is
@@ -294,9 +294,9 @@ final class EnvLoader
     /**
      * Parse a .env file and return key-value pairs without setting $_ENV.
      *
-     * The path is a local file. A URL that PHP would open with a stream wrapper is rejected before anything is
-     * done with it, unless $allowStreamWrappers says otherwise: a wrapper can reach other hosts (ftp://) or read an
-     * archive (phar://), which a path to a configuration file is not expected to do.
+     * A URL is opened with its stream wrapper, as in 2.0. With $localOnly it is rejected before anything is done with
+     * it: a wrapper can reach other hosts (ftp://) or read an archive (phar://), which a path to a configuration file
+     * is not expected to do.
      *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
@@ -308,12 +308,12 @@ final class EnvLoader
      *
      * @return array<string, string>
      */
-    public static function parse(string $path, bool $allowStreamWrappers = false): array
+    public static function parse(string $path, bool $localOnly = false): array
     {
         $result = [];
         $bomPossible = true;
 
-        foreach (self::lines(self::read($path, $allowStreamWrappers)) as $lineNumber => $line) {
+        foreach (self::lines(self::read($path, $localOnly)) as $lineNumber => $line) {
             // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Empty as the
             // parser sees it: a line of whitespace is skipped like an empty one, so it keeps the BOM possible. Only
             // the whole sequence: single bytes of it, or a second BOM, stay and make the key invalid
@@ -344,11 +344,11 @@ final class EnvLoader
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
      */
-    private static function read(string $path, bool $allowStreamWrappers): string
+    private static function read(string $path, bool $localOnly): string
     {
         $streamUrl = self::isStreamUrl($path);
-        if ($streamUrl && !$allowStreamWrappers) {
-            throw new Exception\FileNotFoundException("Stream wrapper not allowed: $path");
+        if ($streamUrl && $localOnly) {
+            throw new Exception\FileNotFoundException("Not a local file: $path");
         }
 
         // The warnings of opening and reading (open_basedir, a failed open or read, those of a stream wrapper) do not

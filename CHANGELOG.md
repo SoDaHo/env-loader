@@ -4,12 +4,12 @@
 
 ## [2.1.0] - 2026-10-10
 
-Three options for `load()`, a size limit, and only local files unless stream wrappers are allowed. New parameters come after the existing ones, so positional calls keep working. What a caller may notice is listed under "Upgrading from 2.0.1".
+New options for `load()` and `parse()`, and a size limit. New parameters come after the existing ones, so positional calls keep working. What a caller may notice is listed under "Upgrading from 2.0.1".
 
 ### Added
 - `requireNonEmpty` for `load()`: a required key also fails with an empty value. Checked is the value `load()` leaves in `$_ENV`, so also an empty variable of the environment that wins over the file (Docker Compose sets one where the host has no value) makes the load fail instead of leaving an empty secret; the empty variable still wins where nothing is required. The message names such keys as `Empty required key: A` (`Empty required keys: A, B`), after the missing ones, separated by `; `.
 - `rejectRequestVariables` for `load()`: throws the new `RequestVariableException` before anything is written, where a key named like a request variable (`HTTP_*`, `REDIRECT_*`, a CGI meta-variable such as `CONTENT_TYPE`, `QUERY_STRING` or `REMOTE_USER`) would take its value from `$_ENV` while PHP fills `$_ENV` with the request (under PHP-FPM or CGI with an `E` in `variables_order`); a value equal to the variable of the process environment passes. Without an `E`, and on the command line, it has nothing to do.
-- `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0.x did.
+- `localOnly` for `parse()` and `load()`: a URL that PHP would open with a stream wrapper (a scheme of two or more characters followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Not a local file: …` before anything is done with it; a wrapper could read an archive or a file on another host where a path to a configuration file was meant. Without it, a URL is opened with its wrapper as in 2.0.x. The README recommends it for a file with secrets.
 - `SECURITY.md`: how to report a vulnerability (GitHub's private vulnerability reporting), which versions get fixes (the latest release only), and what is outside the reach of the library.
 
 ### Changed
@@ -28,13 +28,11 @@ Three options for `load()`, a size limit, and only local files unless stream wra
 - The class documentation of `FileNotFoundException`, `FileNotReadableException`, `InvalidValueException` and `MissingRequiredKeyException` names every case that throws them (it described one each).
 
 ### Security
-- `parse()` and `load()` read a local file only: a URL that PHP would open with a stream wrapper (a scheme followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Stream wrapper not allowed: …` before anything is done with it. A wrapper could read an archive or a file on another host where a path to a configuration file was meant.
 - No file larger than 1 MiB is read: it throws `FileNotReadableException` with `File too large: …`, counted while reading, so also for a stream that tells no size. A larger file was read up to the memory limit, and running out of memory was a fatal error whose backtrace could show the start of a line. A line is bounded by the file.
 - Messages name required keys with control characters escaped (a line break as `\x0A`, NUL as `\x00`): a name passed in `required` with a line break added a line of its own to a log that writes the message.
 
 ### Upgrading from 2.0.1
 Code that loads a local file of at most 1 MiB, with keys and required keys that are plain names, needs no change. A caller can notice these differences:
-- **A URL as the path** (`phar://`, `file://`, …): `FileNotFoundException` with `Stream wrapper not allowed: …`, where 2.0.1 opened it with its wrapper. Pass a local path (drop `file://`), or pass `allowStreamWrappers: true` to keep the wrapper. URLs that 2.0.1 could not stat (`http://`, `php://filter`, `data:`) threw `FileNotFoundException` with `File not found: …`; the class stays, the message is the new one.
 - **A file larger than 1 MiB:** `FileNotReadableException` with `File too large: …`, where 2.0.1 read it.
 - **A required key with a value in `$_ENV` that is no string** (put there by the application): `MissingRequiredKeyException` with `Required key without a string value: …`, where 2.0.1 passed. Put a string into `$_ENV`, or let the file overwrite it (`overwrite: true`). Code that compares the message has to accept the parts joined by `; `.
 - **An error handler that throws for suppressed warnings:** it no longer sees the warnings of opening and reading the file. Where it turned them into an `ErrorException`, `parse()` and `load()` throw their `EnvLoaderException` now, or return the values where the warning came with a successful read (a stream wrapper that warns when it is closed).

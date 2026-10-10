@@ -55,8 +55,8 @@ EnvLoader::load('.env', rejectRequestVariables: true);
 // Combine options
 EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
 
-// Open a URL with its stream wrapper (otherwise only a local file is read)
-EnvLoader::load('phar://' . __DIR__ . '/app.phar/.env', allowStreamWrappers: true);
+// Read a local file only: a URL of a stream wrapper (phar://, file://, …) throws
+EnvLoader::load(__DIR__ . '/.env', localOnly: true);
 ```
 
 Without `overwrite`, the environment wins over the file. For every key of the file, `load()` uses the first value it finds:
@@ -198,7 +198,7 @@ try {
 
 | Exception | When |
 |-----------|------|
-| `FileNotFoundException` | File does not exist, is not a regular file (directory, FIFO, device) or cannot be reached (`open_basedir`, directory permissions), or the path is a URL of a stream wrapper (without `allowStreamWrappers`) |
+| `FileNotFoundException` | File does not exist, is not a regular file (directory, FIFO, device) or cannot be reached (`open_basedir`, directory permissions), or, with `localOnly`, the path is a URL of a stream wrapper |
 | `FileNotReadableException` | File exists but cannot be read, is larger than 1 MiB, or reading it failed or stopped before its end |
 | `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
@@ -214,7 +214,7 @@ An entry of `required` that has no string form (an array, an object without `__t
 
 Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Messages about required keys and request variables name the keys with control characters escaped (a line break as `\x0A`): a name passed in `required` cannot add a line to a log. Arguments holding raw lines or values are hidden from the stack traces of these exceptions as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out, can show the start of a line or of the file. As no file larger than 1 MiB is read, parsing needs at most about 3 MiB beyond what the application uses, so that takes a `memory_limit` set that low; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
 
-Messages name the path as it was passed in, so keep secrets out of the path. The path is a local file: a URL that PHP would open with a stream wrapper — a scheme followed by `://` (`phar://`, `file://`, `php://`, `ftp://`, …) or `data:` — throws `FileNotFoundException` (`Stream wrapper not allowed: …`) before anything is done with it. `allowStreamWrappers: true` opens it with its wrapper, as 2.0.x did: a wrapper that PHP can stat is read (a `phar://` path like a file), `http://` or `php://filter` throw `FileNotFoundException`. Either way the path is trusted input: never build it from a request.
+Messages name the path as it was passed in, so keep secrets out of the path. The path is trusted input: `parse()` and `load()` open it with `fopen()`, so a URL is opened with its stream wrapper where PHP can stat it (a `phar://` path is read like a file; `http://` or `php://filter` throw `FileNotFoundException`). For a file with secrets, pass `localOnly: true`: a URL that PHP would open with a stream wrapper — a scheme of two or more characters followed by `://` (`phar://`, `file://`, `ftp://`, …) or `data:` — then throws `FileNotFoundException` (`Not a local file: …`) before anything is done with it. Never build the path from a request.
 
 ## Key Naming Rules
 
@@ -276,7 +276,7 @@ $host = getenv('DB_HOST');
 
 ## Security
 
-Report a vulnerability privately, as the [security policy](https://github.com/SoDaHo/env-loader/blob/main/SECURITY.md) describes (it is not part of the installed package). Under PHP-FPM and CGI set `variables_order = "GPCS"`, pass a fixed local path, and check secrets for length and form after loading.
+Report a vulnerability privately, as the [security policy](https://github.com/SoDaHo/env-loader/blob/main/SECURITY.md) describes (it is not part of the installed package). Under PHP-FPM and CGI set `variables_order = "GPCS"`, pass a fixed local path with `localOnly: true`, and check secrets for length and form after loading.
 
 ## Requirements
 

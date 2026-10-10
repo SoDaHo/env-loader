@@ -47,11 +47,11 @@ class SizeLimitTest extends EnvLoaderTestCase
         $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
 
         try {
-            $this->assertSame([], EnvLoader::parse("$scheme://large/" . self::LIMIT, allowStreamWrappers: true));
+            $this->assertSame([], EnvLoader::parse("$scheme://large/" . self::LIMIT));
 
             $path = "$scheme://large/" . (self::LIMIT + 1);
             try {
-                EnvLoader::parse($path, allowStreamWrappers: true);
+                EnvLoader::parse($path);
                 $this->fail('Expected FileNotReadableException');
             } catch (FileNotReadableException $e) {
                 $this->assertSame("File too large: $path", $e->getMessage());

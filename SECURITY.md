@@ -22,8 +22,8 @@ SAPI (CLI, PHP-FPM, CGI, …), `variables_order` and, if you have one, a minimal
 The library parses a file into strings and writes them to `$_ENV`: no variable expansion, no code is run, no value
 appears in an exception message. These are outside its reach by design, and documented in the README:
 
-- **The path is trusted input.** Only a local file is read; a URL is opened with its stream wrapper only with
-  `allowStreamWrappers: true`. A report that needs a path built from a request is a usage error in the application.
+- **The path is trusted input.** A URL is opened with its stream wrapper, as in 2.0; `localOnly: true` reads a local
+  file only. A report that needs a path built from a request is a usage error in the application.
 - **`variables_order` with `E`.** Under PHP-FPM and CGI PHP itself fills `$_ENV` with the request then, and `$_ENV`
   wins over the file. The README asks for `variables_order = "GPCS"`; `rejectRequestVariables: true` is a guard on
   top, for the names a request can bring.

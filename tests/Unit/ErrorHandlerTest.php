@@ -55,7 +55,7 @@ class ErrorHandlerTest extends EnvLoaderTestCase
 
         try {
             try {
-                $result = (string) json_encode(EnvLoader::parse($path, allowStreamWrappers: true));
+                $result = (string) json_encode(EnvLoader::parse($path));
             } catch (FileNotReadableException $e) {
                 $result = $e::class . ': ' . $e->getMessage();
             }
