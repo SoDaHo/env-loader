@@ -40,14 +40,15 @@ class PhpCgi
      * Sends one request over FastCGI: the parameters reach PHP as a web server sends them, not as environment.
      *
      * @param array<string, string> $params
+     * @param list<string> $options Options for php-cgi, such as "-d", "variables_order=EGPCS"
      *
      * @return string Body of the response
      */
-    public static function fastCgiRequest(string $binary, string $script, array $params): string
+    public static function fastCgiRequest(string $binary, string $script, array $params, array $options = []): string
     {
         $address = self::freeAddress();
         $process = proc_open(
-            [$binary, '-d', 'display_errors=1', '-b', $address],
+            [$binary, '-d', 'display_errors=1', ...$options, '-b', $address],
             [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
             $pipes
         );
@@ -102,10 +103,11 @@ class PhpCgi
      * Runs one request as a plain CGI process: the request is the environment of the process.
      *
      * @param array<string, string> $environment
+     * @param list<string> $options Options for php-cgi, such as "-d", "variables_order=EGPCS"
      *
      * @return string Body of the response
      */
-    public static function cgiRequest(string $binary, string $script, array $environment): string
+    public static function cgiRequest(string $binary, string $script, array $environment, array $options = []): string
     {
         $environment += [
             'GATEWAY_INTERFACE' => 'CGI/1.1',
@@ -114,7 +116,7 @@ class PhpCgi
             'SCRIPT_FILENAME' => $script,
         ];
         $process = proc_open(
-            [$binary, '-d', 'display_errors=1'],
+            [$binary, '-d', 'display_errors=1', ...$options],
             [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']],
             $pipes,
             null,

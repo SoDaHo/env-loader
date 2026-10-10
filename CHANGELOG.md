@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `rejectRequestVariables` for `load()`: throws the new `RequestVariableException` before anything is written, where a key named like a request variable (`HTTP_*`, `REDIRECT_*`, a CGI meta-variable such as `CONTENT_TYPE`, `QUERY_STRING` or `REMOTE_USER`) would take its value from `$_ENV` while PHP fills `$_ENV` with the request (under PHP-FPM or CGI with an `E` in `variables_order`); a value equal to the variable of the process environment passes. Without it, and with `GPCS`, nothing changes.
 - `requireNonEmpty` for `load()`: a required key also fails with an empty value. Checked is the value `load()` leaves in `$_ENV`, so also an empty variable of the environment that wins over the file (Docker Compose sets one where the host has no value) makes the load fail instead of leaving an empty secret. The message names such keys as `Empty required key: A` (`Empty required keys: A, B`), after the missing ones, separated by `; `.
 - `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0 did.
 
@@ -11,6 +12,7 @@
 - Development (not part of the package): CI looks up the locked development tools in the security advisories (`composer audit`; an unreachable Packagist only warns), and a job fails after ten minutes instead of hanging.
 
 ### Fixed
+- README: "a request cannot overrule the file" is gone; it held only without an `E` in `variables_order`. The README asks for `variables_order = "GPCS"` under PHP-FPM and CGI (PHP uses `EGPCS` without a php.ini, as in the official Docker image) and names `rejectRequestVariables` as a guard.
 - A required key whose value in `$_ENV` is no string (set there by the application: `42`, `false`, `null`) throws `MissingRequiredKeyException` with `Required key without a string value: A` before anything is written; it passed, and the value stayed in `$_ENV`. The value of a key that is not required is still kept as it is.
 - An error handler of the application that throws even for warnings suppressed with `@` no longer replaces the result of `parse()` and `load()` with its `ErrorException`: the warnings of opening and reading the file, also those of a stream wrapper and of closing it, do not reach it. Every failure is reported as an `EnvLoaderException`.
 - A local file is checked on what was opened (`fstat()`), no longer on its name before opening, and it is opened without blocking: a FIFO or device that replaced the file between the check and the opening was read, and a FIFO made `parse()` wait for a writer. It throws `FileNotFoundException` (`Not a file: …`) now, as a FIFO or device named in the first place does.

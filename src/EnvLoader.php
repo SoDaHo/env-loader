@@ -30,6 +30,18 @@ final class EnvLoader
     // What trim() removes. Spelled out, because the default of PHP changes: from 8.6 it includes the form feed
     private const WHITESPACE = " \t\n\r\v\f\0";
 
+    // Names under which a web server passes the request (besides every header as HTTP_*, and copies as REDIRECT_*
+    // after an internal redirect of Apache): the meta-variables of CGI/1.1 (RFC 3875, 4.1), those nginx and Apache
+    // add, and those PHP derives from the request
+    private const REQUEST_VARIABLES = [
+        'AUTH_TYPE', 'CONTENT_LENGTH', 'CONTENT_TYPE', 'GATEWAY_INTERFACE', 'PATH_INFO', 'PATH_TRANSLATED',
+        'QUERY_STRING', 'REMOTE_ADDR', 'REMOTE_HOST', 'REMOTE_IDENT', 'REMOTE_USER', 'REQUEST_METHOD', 'SCRIPT_NAME',
+        'SERVER_NAME', 'SERVER_PORT', 'SERVER_PROTOCOL', 'SERVER_SOFTWARE',
+        'DOCUMENT_ROOT', 'DOCUMENT_URI', 'FCGI_ROLE', 'HTTPS', 'REMOTE_PORT', 'REQUEST_SCHEME', 'REQUEST_URI',
+        'SCRIPT_FILENAME', 'SERVER_ADDR',
+        'ORIG_PATH_INFO', 'ORIG_SCRIPT_NAME', 'PHP_AUTH_DIGEST', 'PHP_AUTH_PW', 'PHP_AUTH_USER', 'PHP_SELF',
+    ];
+
     /**
      * Load a .env file into $_ENV and return the values of the file.
      *
@@ -39,6 +51,8 @@ final class EnvLoader
      * @param array<string>|string $required Required keys - array or comma-separated string. Each has to end up
      *                                       in $_ENV with a string value
      * @param bool $requireNonEmpty The value of a required key must not be empty either
+     * @param bool $rejectRequestVariables Throw where a key named like a request variable (HTTP_*, CGI) would take
+     *                                     its value from $_ENV while PHP fills $_ENV with the request
      * @param bool $allowStreamWrappers Open a URL (phar://, file://, ...) with its stream wrapper, see parse()
      *
      * @throws Exception\FileNotFoundException
@@ -49,6 +63,7 @@ final class EnvLoader
      * @throws Exception\TrailingCharactersException
      * @throws Exception\InvalidValueException
      * @throws Exception\MissingRequiredKeyException
+     * @throws Exception\RequestVariableException
      * @throws \InvalidArgumentException An entry of $required has no string form
      *
      * @return array<string, string> The values of the file, whether or not they were written to $_ENV
@@ -58,6 +73,7 @@ final class EnvLoader
         bool $overwrite = false,
         array|string $required = [],
         bool $requireNonEmpty = false,
+        bool $rejectRequestVariables = false,
         bool $allowStreamWrappers = false,
     ): array {
         $values = self::parse($path, $allowStreamWrappers);
@@ -70,6 +86,10 @@ final class EnvLoader
             if (!array_key_exists($key, $resolved)) {
                 $resolved[$key] = self::resolve($key, $values, $overwrite);
             }
+        }
+
+        if ($rejectRequestVariables) {
+            self::rejectRequestVariables($resolved);
         }
 
         // Checked before writing, so a failed load leaves $_ENV untouched. Every key is checked before throwing:
@@ -176,6 +196,48 @@ final class EnvLoader
     }
 
     /**
+     * Throws for the keys that would take their value from $_ENV where the request may have put it there.
+     *
+     * PHP fills $_ENV itself where variables_order has an E, and under a web SAPI (PHP-FPM, CGI) that includes the
+     * request: a client sets HTTP_* with a header. Only names a request can bring count, so a fastcgi_param of the
+     * web server with another name stays trusted; and a value that is the one of the process environment is no
+     * value from the request (under plain CGI the process environment is the request, and processVariable() says
+     * false there). The CLI has no request.
+     *
+     * @param array<array{'file'|'env'|'process', mixed}|null> $resolved
+     *
+     * @throws Exception\RequestVariableException
+     */
+    private static function rejectRequestVariables(#[\SensitiveParameter] array $resolved): void
+    {
+        $requestInEnv = !in_array(PHP_SAPI, ['cli', 'phpdbg'], true)
+            && stripos((string) ini_get('variables_order'), 'E') !== false;
+        if (!$requestInEnv) {
+            return;
+        }
+
+        $fromRequest = [];
+        foreach ($resolved as $key => $found) {
+            $key = (string) $key;
+            $requestName = str_starts_with($key, 'HTTP_') || str_starts_with($key, 'REDIRECT_')
+                || in_array($key, self::REQUEST_VARIABLES, true);
+
+            if ($found !== null && $found[0] === 'env' && $requestName && $found[1] !== self::processVariable($key)) {
+                $fromRequest[$key] = $key;
+            }
+        }
+
+        $message = self::keyList(
+            'Value from the request in $_ENV for key',
+            'Values from the request in $_ENV for keys',
+            $fromRequest
+        );
+        if ($message !== null) {
+            throw new Exception\RequestVariableException($message);
+        }
+    }
+
+    /**
      * "Label: A" for one key, "Labels: A, B" for several, null for none.
      *
      * @param array<string> $keys
@@ -209,8 +271,9 @@ final class EnvLoader
      * The value of a variable in the environment of the PHP process, false if it is not set or not to be read.
      *
      * Only the process itself is asked (local_only). The plain getenv() also returns what the web server
-     * passes with a request - under FastCGI every request header as HTTP_* - and a request must not
-     * overrule the file.
+     * passes with a request - under FastCGI every request header as HTTP_* - and that must not count as process
+     * environment. (Where PHP puts the request into $_ENV itself, variables_order with E, see
+     * rejectRequestVariables().)
      */
     private static function processVariable(string $key): string|false
     {

@@ -49,6 +49,9 @@ EnvLoader::load('.env', required: 'DB_HOST,DB_NAME');
 // Required keys whose values must not be empty either
 EnvLoader::load('.env', required: ['JWT_SECRET'], requireNonEmpty: true);
 
+// Throw where a request may have set a key through $_ENV (see variables_order below)
+EnvLoader::load('.env', rejectRequestVariables: true);
+
 // Combine options
 EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
 
@@ -66,11 +69,14 @@ A value from the process environment is copied into `$_ENV`, so the application 
 
 The process environment is the environment of the PHP process itself: what Docker, systemd, the shell or `env[NAME]` in a PHP-FPM pool set. That includes what the system sets on its own (`PATH`, `HOME`, `USER`, `HOSTNAME`, in the official Docker image also `PHP_VERSION` and other `PHP_*`): a key of that name in the file loses against it.
 
-What the web server passes with a request is not part of it. Under FastCGI (PHP-FPM) the request arrives as parameters (every header as `HTTP_*`, and request variables such as `CONTENT_TYPE`, `QUERY_STRING` and `REQUEST_URI`), and `load()` does not read them, so a request cannot overrule the file. What to know about the edges:
+What the web server passes with a request is not part of it. Under FastCGI (PHP-FPM) the request arrives as parameters (every header as `HTTP_*`, and request variables such as `CONTENT_TYPE`, `QUERY_STRING` and `REQUEST_URI`); `load()` does not read them as process environment. But with an `E` in `variables_order`, PHP itself fills `$_ENV` with them, under PHP-FPM and CGI, and `$_ENV` wins over the file: there a client sets a key named like a header (`HTTP_…`) or a request variable with a request of its own, also one in `required`.
+
+**Under PHP-FPM and CGI, set `variables_order = "GPCS"`.** That is the value of php.ini-production and php.ini-development, but without a php.ini (the official Docker image ships none) PHP uses `EGPCS`. Set it in a php.ini or for the pool (`php_admin_value[variables_order] = GPCS`), and keep names like `HTTP_…` out of the file and out of `required`. As a guard on top, `rejectRequestVariables: true` makes `load()` throw `RequestVariableException` before it writes anything, where such a key would take its value from `$_ENV` while PHP fills `$_ENV` with the request (under PHP-FPM or CGI, with an `E` in `variables_order`); a value equal to the variable of the process environment passes. It knows the names `HTTP_*` and `REDIRECT_*`, the meta-variables of CGI/1.1 (`AUTH_TYPE`, `CONTENT_LENGTH`, `CONTENT_TYPE`, `GATEWAY_INTERFACE`, `PATH_INFO`, `PATH_TRANSLATED`, `QUERY_STRING`, `REMOTE_ADDR`, `REMOTE_HOST`, `REMOTE_IDENT`, `REMOTE_USER`, `REQUEST_METHOD`, `SCRIPT_NAME`, `SERVER_NAME`, `SERVER_PORT`, `SERVER_PROTOCOL`, `SERVER_SOFTWARE`), those nginx and Apache add (`DOCUMENT_ROOT`, `DOCUMENT_URI`, `FCGI_ROLE`, `HTTPS`, `REMOTE_PORT`, `REQUEST_SCHEME`, `REQUEST_URI`, `SCRIPT_FILENAME`, `SERVER_ADDR`) and those PHP derives from the request (`ORIG_PATH_INFO`, `ORIG_SCRIPT_NAME`, `PHP_AUTH_DIGEST`, `PHP_AUTH_PW`, `PHP_AUTH_USER`, `PHP_SELF`). A `fastcgi_param` of the web server with another name is configuration of the server, not of the client, and wins over the file as before.
+
+What to know about the edges:
 
 - **Plain CGI:** there the request is the environment of the process. `load()` recognizes it by `GATEWAY_INTERFACE`, which CGI/1.1 requires every gateway to set, and does not read the process environment; only `$_ENV` and the file count, as in 1.x. A gateway that omits the variable is not recognized.
 - **PHP-FPM** clears the environment of its workers (`USER` and `HOME` remain) unless the pool says `clear_env = no` (the official Docker image does) or lists the variables with `env[NAME]`.
-- **`variables_order` with `E`** makes PHP fill `$_ENV` itself, under PHP-FPM and CGI with the parameters of the request. `$_ENV` wins over the file, so there a request can set a key named like a header (`HTTP_…`) or a request variable. `E` is the default when no php.ini is loaded, as in the official Docker image; use `GPCS` (php.ini-production and php.ini-development), or keep such names out of the file.
 - **`getenv()` disabled** (`disable_functions`): the process environment is not read.
 
 With `overwrite: true` the file wins: its values replace what `$_ENV` holds, whatever the process environment says.
@@ -189,6 +195,7 @@ try {
 | `UnterminatedQuoteException` | Quoted value missing closing quote |
 | `TrailingCharactersException` | Text other than a comment after the closing quote |
 | `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment, its value in `$_ENV` is no string, or it is empty (`requireNonEmpty`) |
+| `RequestVariableException` | `rejectRequestVariables`: a key named like a request variable would take its value from `$_ENV` while PHP fills `$_ENV` with the request |
 | `InvalidValueException` | `parse()`, `load()`: a value contains a NUL byte. `format()`: value is not a string, or contains a line break or NUL byte |
 
 The warnings PHP raises while the file is opened and read (`open_basedir`, a failed open or read, also those of a stream wrapper) do not reach an error handler of yours: every failure is one of these exceptions, also where your handler throws even for warnings suppressed with `@`.
