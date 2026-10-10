@@ -182,11 +182,27 @@ final class EnvLoader
      */
     private static function keyList(string $one, string $several, array $keys): ?string
     {
+        $keys = array_map(self::printable(...), $keys);
+
         return match (count($keys)) {
             0 => null,
             1 => "$one: " . implode('', $keys),
             default => "$several: " . implode(', ', $keys),
         };
+    }
+
+    /**
+     * A key as a message shows it: control characters escaped (a line break as \x0A). A required key is any name
+     * the caller passes, and it must not add a line to a log or hide a NUL byte; a valid key stays as it is.
+     */
+    private static function printable(string $key): string
+    {
+        $escapes = [];
+        foreach ([...range(0, 31), 127] as $byte) {
+            $escapes[chr($byte)] = sprintf('\x%02X', $byte);
+        }
+
+        return strtr($key, $escapes);
     }
 
     /**

@@ -390,12 +390,12 @@ class LoadTest extends EnvLoaderTestCase
         $this->setProcessVariable('TEST_ODD', 'KEY=value');
         $path = $this->createEnvFile('TEST_OTHER=value');
 
-        foreach (['TEST_ODD=KEY', "TEST_ODD\0KEY"] as $key) {
+        foreach (['TEST_ODD=KEY' => 'TEST_ODD=KEY', "TEST_ODD\0KEY" => 'TEST_ODD\x00KEY'] as $key => $named) {
             try {
                 EnvLoader::load($path, required: [$key]);
                 $this->fail('Expected MissingRequiredKeyException');
             } catch (MissingRequiredKeyException $e) {
-                $this->assertSame("Missing required key: $key", $e->getMessage());
+                $this->assertSame("Missing required key: $named", $e->getMessage());
             }
         }
     }

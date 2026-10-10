@@ -19,10 +19,12 @@
 - README: `export` is followed by a space or a tab, as in a shell; after another whitespace (vertical tab, form feed) it is part of the key, which is invalid.
 
 ### Security
+- Messages name required keys with control characters escaped (a line break as `\x0A`, NUL as `\x00`): a name passed in `required` with a line break added a line of its own to a log that writes the message.
 - No file larger than 1 MiB is read: it throws `FileNotReadableException` with `File too large: …`, counted while reading, so also for a stream that tells no size. A larger file was read up to the memory limit, and running out of memory was a fatal error whose backtrace could show the start of a line. A line is bounded by the file.
 - `parse()` and `load()` read a local file only: a URL that PHP would open with a stream wrapper (a scheme followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Stream wrapper not allowed: …` before anything is done with it. A wrapper could read an archive or a file on another host where a path to a configuration file was meant.
 
 ### Upgrading from 2.0.1
+- **A required key with a control character in its name:** the message shows it escaped (`\x0A`), where 2.0.1 showed it as it is.
 - **A required key with a value in `$_ENV` that is no string** (put there by the application): `MissingRequiredKeyException`, where 2.0.1 passed. Put a string into `$_ENV`, or let the file overwrite it (`overwrite: true`).
 - **An error handler that throws for suppressed warnings:** it no longer sees the warnings of opening and reading the file. Where it turned them into an `ErrorException`, `parse()` and `load()` throw their `EnvLoaderException` now, or return the values where the warning came with a successful read (a stream wrapper that warns when it is closed).
 - **A file larger than 1 MiB:** `FileNotReadableException` with `File too large: …`, where 2.0.1 read it.
