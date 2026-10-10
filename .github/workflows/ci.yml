@@ -17,6 +17,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container: shivammathur/node:24.04
+    # A run takes a few minutes; a test that hangs (a FIFO opened blocking, say) must not hold the runner
+    timeout-minutes: 10
     continue-on-error: ${{ matrix.php == '8.6' }}
     strategy:
       fail-fast: false
@@ -79,6 +81,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     container: shivammathur/node:24.04
+    timeout-minutes: 10
     name: Composer files, static analysis and code style
 
     steps:
@@ -112,3 +115,9 @@ jobs:
 
       - name: Run PHPStan
         run: composer analyse
+
+      # Known security advisories for the locked development tools (the package itself has no dependencies).
+      # Packagist answers this; if it cannot be reached the step only warns, so an outage does not fail the run.
+      # Abandoned packages are reported, not failed: that is no vulnerability
+      - name: Check for security advisories
+        run: composer audit --locked --abandoned=report --ignore-unreachable
