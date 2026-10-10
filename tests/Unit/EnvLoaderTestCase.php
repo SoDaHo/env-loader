@@ -125,10 +125,6 @@ abstract class EnvLoaderTestCase extends TestCase
      * and memory_get_usage() counts nothing, so a test of memory would pass without testing anything. Nor
      * does it get ZEND_MM_DEBUG, whose checks copy a growing string and so count it twice.
      *
-     * The child has to exit with status 0 within the time given: output alone could come from a child that
-     * crashed after it. Both pipes are read as they fill, so a child that writes much to one of them cannot
-     * block while the other is read.
-     *
      * @param list<string> $options
      * @param array<string, string> $environment Set in the child in addition to the environment of this process
      *
@@ -141,12 +137,31 @@ abstract class EnvLoaderTestCase extends TestCase
         array $environment = [],
         float $timeoutSeconds = 120.0
     ): string {
-        $process = proc_open(
+        return $this->runCommand(
             [PHP_BINARY, ...$options, '-r', $script, dirname(__DIR__, 2) . '/vendor/autoload.php', $path],
+            ['USE_ZEND_ALLOC' => '1'] + $environment,
+            $timeoutSeconds
+        );
+    }
+
+    /**
+     * Runs a command in a child process, which has to exit with status 0 within the time given: output alone could
+     * come from a child that crashed after it. Both pipes are read as they fill, so a child that writes much to one
+     * of them cannot block while the other is read.
+     *
+     * @param list<string> $command
+     * @param array<string, string> $environment Set in the child in addition to the environment of this process
+     *
+     * @return string What the child wrote to stdout, then to stderr
+     */
+    protected function runCommand(array $command, array $environment = [], float $timeoutSeconds = 120.0): string
+    {
+        $process = proc_open(
+            $command,
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             null,
-            ['USE_ZEND_ALLOC' => '1'] + $environment + array_diff_key(getenv(), ['ZEND_MM_DEBUG' => true])
+            $environment + array_diff_key(getenv(), ['ZEND_MM_DEBUG' => true])
         );
         $this->assertIsResource($process);
 

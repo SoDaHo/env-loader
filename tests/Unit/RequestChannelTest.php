@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Sodaho\EnvLoader\Tests\Unit;
 
-use Sodaho\EnvLoader\EnvLoader;
 use Sodaho\EnvLoader\Exception\RequestVariableException;
 
 /**
@@ -130,15 +129,6 @@ class RequestChannelTest extends EnvLoaderTestCase
         );
     }
 
-    public function testGuardIsOffInThisProcess(): void
-    {
-        // The tests run on the command line, whatever variables_order says here
-        $_ENV = ['HTTP_X_TEST' => 'app'];
-        EnvLoader::load($this->createEnvFile(self::FILE), rejectRequestVariables: true);
-
-        $this->assertSame('app', $_ENV['HTTP_X_TEST']);
-    }
-
     public function testGuardIsOffOnTheCommandLine(): void
     {
         // The CLI has no request: what is in $_ENV there comes from the process or the application
@@ -152,11 +142,70 @@ class RequestChannelTest extends EnvLoaderTestCase
         $this->assertSame('app', $this->runInChildProcess($script, $path, ['-d', 'variables_order=EGPCS']));
     }
 
+    public function testGuardKnowsEveryNameOfARequestVariable(): void
+    {
+        // Every name the README lists, a header and a copy of Apache after an internal redirect; variables_order in
+        // lower case, which PHP accepts as well. php-cgi itself needs SCRIPT_FILENAME, PATH_TRANSLATED and
+        // REQUEST_METHOD: the request brings them with the values it needs
+        $names = [
+            'AUTH_TYPE', 'CONTENT_LENGTH', 'CONTENT_TYPE', 'GATEWAY_INTERFACE', 'PATH_INFO', 'PATH_TRANSLATED',
+            'QUERY_STRING', 'REMOTE_ADDR', 'REMOTE_HOST', 'REMOTE_IDENT', 'REMOTE_USER', 'REQUEST_METHOD', 'SCRIPT_NAME',
+            'SERVER_NAME', 'SERVER_PORT', 'SERVER_PROTOCOL', 'SERVER_SOFTWARE',
+            'DOCUMENT_ROOT', 'DOCUMENT_URI', 'FCGI_ROLE', 'HTTPS', 'REMOTE_PORT', 'REQUEST_SCHEME', 'REQUEST_URI',
+            'SCRIPT_FILENAME', 'SERVER_ADDR',
+            'ORIG_PATH_INFO', 'ORIG_SCRIPT_NAME', 'PHP_AUTH_DIGEST', 'PHP_AUTH_PW', 'PHP_AUTH_USER', 'PHP_SELF',
+            'HTTP_X_ANY', 'REDIRECT_HTTP_X_ANY', 'REDIRECT_URL',
+        ];
+        $params = array_fill_keys(array_diff($names, ['SCRIPT_FILENAME', 'REQUEST_METHOD', 'FCGI_ROLE']), 'header');
+        $params['PATH_TRANSLATED'] = $this->tempDir . '/request.php';
+        $content = implode("\n", array_map(static fn (string $name): string => "$name=file", $names)) . "\nTEST_PLAIN=file";
+
+        $response = $this->request('egpcs', ['rejectRequestVariables' => true], '', $params, $content);
+
+        $this->assertSame(RequestVariableException::class, $response[0]);
+        $this->assertSame('Values from the request in $_ENV for keys: ' . implode(', ', $names), $response[1]);
+    }
+
+    public function testGuardThrowsBeforeTheCheckOfRequiredKeys(): void
+    {
+        $response = $this->request('EGPCS', [
+            'required' => ['TEST_MISSING', 'HTTP_X_ADMIN_TOKEN'],
+            'rejectRequestVariables' => true,
+        ]);
+
+        $this->assertSame(RequestVariableException::class, $response[0]);
+    }
+
+    public function testGuardIsOffUnderPhpdbg(): void
+    {
+        // phpdbg runs scripts from the command line as well: no request
+        $phpdbg = PhpCgi::phpdbg();
+        if ($phpdbg === null) {
+            $this->markTestSkipped('No phpdbg next to ' . PHP_BINARY);
+        }
+
+        $path = $this->createEnvFile(self::FILE);
+        $script = $this->tempDir . '/script.php';
+        $this->writeFile(
+            $script,
+            '<?php require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';'
+            . '$_ENV["HTTP_X_TEST"] = "app";'
+            . 'try { Sodaho\EnvLoader\EnvLoader::load(' . var_export($path, true) . ', rejectRequestVariables: true); }'
+            . 'catch (Throwable $e) { echo $e::class; }'
+            . 'echo PHP_SAPI, " ", $_ENV["HTTP_X_TEST"];'
+        );
+
+        $output = $this->runCommand([$phpdbg, '-qrr', '-d', 'variables_order=EGPCS', $script]);
+
+        $this->assertSame('phpdbg app', $output);
+    }
+
     /**
      * Runs load() with the file of this test in a FastCGI request.
      *
      * @param array<string, mixed> $arguments Named arguments of load() besides the path
      * @param array<string, string> $params The request
+     * @param string $content The file
      *
      * @return list<mixed> "ok" or the class and message of the exception, then the keys of interest in $_ENV
      */
@@ -164,14 +213,15 @@ class RequestChannelTest extends EnvLoaderTestCase
         string $variablesOrder,
         array $arguments,
         string $prelude = '',
-        array $params = self::PARAMS
+        array $params = self::PARAMS,
+        string $content = self::FILE
     ): array {
         $binary = PhpCgi::binary();
         if ($binary === null) {
             $this->markTestSkipped('No php-cgi next to ' . PHP_BINARY);
         }
 
-        $path = $this->createEnvFile(self::FILE);
+        $path = $this->createEnvFile($content);
         $script = $this->tempDir . '/request.php';
         $keys = ['HTTP_X_TEST', 'CONTENT_TYPE', 'TEST_PARAM', 'TEST_FILE_ONLY', 'HTTP_X_ADMIN_TOKEN'];
         $this->writeFile(
@@ -189,7 +239,9 @@ class RequestChannelTest extends EnvLoaderTestCase
             . 'echo json_encode($result);'
         );
 
-        $response = PhpCgi::fastCgiRequest($binary, $script, $params, ['-d', "variables_order=$variablesOrder"]);
+        // Without fix_pathinfo, php-cgi leaves PATH_INFO and PATH_TRANSLATED as the request brings them
+        $options = ['-d', "variables_order=$variablesOrder", '-d', 'cgi.fix_pathinfo=0'];
+        $response = PhpCgi::fastCgiRequest($binary, $script, $params, $options);
         $result = json_decode($response, true);
         $this->assertIsArray($result, $response);
 

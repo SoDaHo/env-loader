@@ -44,21 +44,25 @@ jobs:
         env:
           WANTED: ${{ matrix.php }}
 
-      # The FastCGI and CGI tests need php-cgi next to the PHP binary, found the way the tests look for it.
-      # Without it they are skipped, and the tests run with --fail-on-skipped
-      - name: Install php-cgi
+      # The FastCGI and CGI tests need php-cgi, one test of the request guard phpdbg, next to the PHP binary, found
+      # the way the tests look for them. Without them those tests are skipped, and the tests run with --fail-on-skipped
+      - name: Install php-cgi and phpdbg
         shell: bash
         run: |
-          cgi() { php -r 'require "tests/Unit/PhpCgi.php"; echo Sodaho\EnvLoader\Tests\Unit\PhpCgi::binary();'; }
+          find_sapi() { php -r 'require "tests/Unit/PhpCgi.php"; echo Sodaho\EnvLoader\Tests\Unit\PhpCgi::'"$1"'();'; }
           echo "PHP_BINARY: $(php -r 'echo PHP_BINARY;')"
-          if [ -z "$(cgi)" ]; then
+          missing=()
+          [ -n "$(find_sapi binary)" ] || missing+=("php${{ matrix.php }}-cgi")
+          [ -n "$(find_sapi phpdbg)" ] || missing+=("php${{ matrix.php }}-phpdbg")
+          if [ ${#missing[@]} -gt 0 ]; then
             sudo=$([ "$(id -u)" -eq 0 ] || echo sudo)
             $sudo apt-get update -q
-            $sudo apt-get install -y -q "php${{ matrix.php }}-cgi"
+            $sudo apt-get install -y -q "${missing[@]}"
           fi
-          found="$(cgi)"
-          echo "php-cgi: ${found:-not found}"
-          [ -n "$found" ]
+          cgi="$(find_sapi binary)"
+          dbg="$(find_sapi phpdbg)"
+          echo "php-cgi: ${cgi:-not found}, phpdbg: ${dbg:-not found}"
+          [ -n "$cgi" ] && [ -n "$dbg" ]
 
       - name: Get Composer Cache Directory
         id: composer-cache

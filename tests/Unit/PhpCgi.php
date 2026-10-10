@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Sodaho\EnvLoader\Tests\Unit;
 
 /**
- * Runs a script through php-cgi as a web server would, over FastCGI or as a plain CGI process.
+ * Runs a script through php-cgi as a web server would, over FastCGI or as a plain CGI process, and finds the
+ * binaries of PHP that run in another SAPI (php-cgi, phpdbg) next to the running one.
  *
  * Only there getenv() and the process environment differ - a CLI process has no request.
  */
@@ -24,10 +25,26 @@ class PhpCgi
      */
     public static function binary(): ?string
     {
+        return self::sibling('php-cgi');
+    }
+
+    /**
+     * The phpdbg binary that belongs to the running PHP, null if there is none.
+     */
+    public static function phpdbg(): ?string
+    {
+        return self::sibling('phpdbg');
+    }
+
+    /**
+     * A binary next to the running PHP, with its version suffix (php8.5 → php-cgi8.5) or without one.
+     */
+    private static function sibling(string $name): ?string
+    {
         $directory = dirname(PHP_BINARY);
         $suffix = substr(basename(PHP_BINARY), 3);
 
-        foreach (["$directory/php-cgi$suffix", "$directory/php-cgi"] as $candidate) {
+        foreach (["$directory/$name$suffix", "$directory/$name"] as $candidate) {
             if (is_executable($candidate)) {
                 return $candidate;
             }
