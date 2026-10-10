@@ -66,6 +66,40 @@ class FileTest extends EnvLoaderTestCase
         EnvLoader::parse($path);
     }
 
+    /**
+     * @return array<string, array{int}> The type of what is opened, as the bits of st_mode
+     */
+    public static function swappedFileProvider(): array
+    {
+        return ['FIFO' => [0o010000], 'device' => [0o020000], 'directory' => [0o040000]];
+    }
+
+    #[DataProvider('swappedFileProvider')]
+    public function testFileReplacedBetweenTheNameAndTheOpeningIsRejected(int $openedType): void
+    {
+        // The plain file wrapper is replaced by one whose name says "regular file" while what is opened is not: only
+        // a check on the opened handle tells. Everything this needs is loaded before, as no file can be read meanwhile
+        class_exists(EnvLoader::class);
+        class_exists(FileNotFoundException::class);
+        class_exists(SwappedFileStream::class);
+        SwappedFileStream::$openedType = $openedType;
+        $path = $this->tempDir . '/.env';
+
+        // No assertion before the wrapper is back: PHPUnit may load a class for it
+        $replaced = false;
+        try {
+            $replaced = stream_wrapper_unregister('file') && stream_wrapper_register('file', SwappedFileStream::class);
+            $result = EnvLoader::parse($path);
+        } catch (FileNotFoundException $e) {
+            $result = $e->getMessage();
+        } finally {
+            stream_wrapper_restore('file');
+        }
+
+        $this->assertTrue($replaced);
+        $this->assertSame("Not a file: $path", $result);
+    }
+
     public function testSocketCannotBeRead(): void
     {
         // A socket cannot be opened as a file at all
