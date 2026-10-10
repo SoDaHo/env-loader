@@ -13,7 +13,7 @@ namespace Sodaho\EnvLoader;
  * valid, the key, and the arguments in the stack traces of its exceptions hide them (#[\SensitiveParameter]).
  * Not covered: the backtrace PHP prints for a fatal error, such as memory running out, can show the start of a
  * line or of the file (README); with no file larger than MAX_FILE_SIZE read, that takes a memory_limit of up to about
- * 16 MiB.
+ * 18 MiB.
  */
 final class EnvLoader
 {
@@ -80,32 +80,43 @@ final class EnvLoader
         $values = self::parse($path, $localOnly);
         $names = self::requiredNames($required);
 
-        // The value each required key will have in $_ENV, decided once: the check below and the writing use it, so
-        // what passes the check is what is written. Only for the required keys: a pair for every key of the file
-        // would hold memory in proportion to the number of keys
-        $requiredValues = [];
-        foreach ($names as $key) {
-            if (!array_key_exists($key, $requiredValues)) {
-                $requiredValues[$key] = self::resolve($key, $values, $overwrite);
-            }
-        }
-
         if ($rejectRequestVariables) {
             self::rejectRequestVariables($values, $names, $overwrite);
         }
 
         // Checked before writing, so a failed load leaves $_ENV untouched. Every key is checked before throwing:
-        // one run names all of them. Only $_ENV can hold a value that is no string, set there by the application
+        // one run names all of them. Only $_ENV can hold a value that is no string, set there by the application.
+        // Nothing is kept per key but the values of the process environment the check has read, which are written
+        // as they were checked: memory stays as low as without required keys
+        $fromProcess = [];
         $missing = [];
         $notString = [];
         $empty = [];
-        foreach ($requiredValues as $key => $found) {
-            $key = (string) $key;
-            if ($found === null) {
-                $missing[$key] = $key;
-            } elseif (!is_string($found[1])) {
+        foreach ($names as $key) {
+            $inFile = array_key_exists($key, $values);
+
+            if ($overwrite && $inFile) {
+                $value = $values[$key];
+            } elseif (array_key_exists($key, $_ENV)) {
+                $value = $_ENV[$key];
+            } elseif ($inFile && !$requireNonEmpty) {
+                // A string either way, from the process environment or the file: nothing to check
+                continue;
+            } else {
+                $value = self::processVariable($key);
+                if ($value !== false) {
+                    $fromProcess[$key] = $value;
+                } elseif ($inFile) {
+                    $value = $values[$key];
+                } else {
+                    $missing[$key] = $key;
+                    continue;
+                }
+            }
+
+            if (!is_string($value)) {
                 $notString[$key] = $key;
-            } elseif ($requireNonEmpty && $found[1] === '') {
+            } elseif ($requireNonEmpty && $value === '') {
                 $empty[$key] = $key;
             }
         }
@@ -120,28 +131,20 @@ final class EnvLoader
             throw new Exception\MissingRequiredKeyException(implode('; ', $problems));
         }
 
-        // A key in $_ENV keeps its value. A required key is written as it was checked; for the other keys of the
-        // file the process environment is asked here, once
+        // A key in $_ENV keeps its value. A value the check took from the process environment is written as it was
+        // checked; for the other keys the process environment is asked here (again, for a required key of the file
+        // that it has no value for under requireNonEmpty)
         foreach ($values as $key => $value) {
             if ($overwrite) {
                 $_ENV[$key] = $value;
             } elseif (!array_key_exists($key, $_ENV)) {
-                $found = $requiredValues[$key] ?? null;
-                if ($found !== null) {
-                    $_ENV[$key] = $found[1];
-                } else {
-                    $fromProcess = self::processVariable($key);
-                    $_ENV[$key] = $fromProcess === false ? $value : $fromProcess;
-                }
+                $process = $fromProcess[$key] ?? self::processVariable($key);
+                $_ENV[$key] = $process === false ? $value : $process;
             }
         }
 
         // A required key that only the process environment has is copied: what is required can be read from $_ENV
-        foreach ($requiredValues as $key => $found) {
-            if ($found !== null && $found[0] === 'process' && !array_key_exists($key, $_ENV)) {
-                $_ENV[$key] = $found[1];
-            }
-        }
+        $_ENV += $fromProcess;
 
         return $values;
     }
@@ -181,35 +184,6 @@ final class EnvLoader
         }
 
         return $names;
-    }
-
-    /**
-     * Where load() takes the value of a key from, and the value, in the order the README gives: with overwrite the
-     * file; otherwise $_ENV, the process environment, the file. Null where none of them has the key.
-     *
-     * Asks the process environment at most once, and only where its answer counts.
-     *
-     * @param array<string, string> $values
-     *
-     * @return array{'file'|'env'|'process', mixed}|null
-     */
-    private static function resolve(string $key, #[\SensitiveParameter] array $values, bool $overwrite): ?array
-    {
-        $inFile = array_key_exists($key, $values);
-
-        if ($overwrite && $inFile) {
-            return ['file', $values[$key]];
-        }
-        if (array_key_exists($key, $_ENV)) {
-            return ['env', $_ENV[$key]];
-        }
-
-        $fromProcess = self::processVariable($key);
-        if ($fromProcess !== false) {
-            return ['process', $fromProcess];
-        }
-
-        return $inFile ? ['file', $values[$key]] : null;
     }
 
     /**

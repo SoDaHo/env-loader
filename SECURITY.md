@@ -31,6 +31,6 @@ no value appears in an exception message. These are outside its reach by design,
   whether a secret is long or strong enough.
 - **The content of `format()` is for `parse()`**, not for a shell that would expand `$`, `${…}` and backticks.
 - **Fatal errors.** The backtrace PHP prints for a fatal error can show the start of a line or of the file; no file
-  larger than 1 MiB is read, so that takes a `memory_limit` of up to about 16 MiB (README).
+  larger than 1 MiB is read, so that takes a `memory_limit` of up to about 18 MiB (README).
   `zend.exception_ignore_args=1` keeps the arguments out.
 - **Long-running workers** share `$_ENV` between requests: load the file once when the worker starts.
