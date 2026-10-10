@@ -7,7 +7,7 @@
 - Option `localOnly` for `parse()` and `load()`: a stream wrapper URL throws `FileNotFoundException`.
 ### Changed
 - `parse()` reads the whole file before it parses a line: a failed read throws `FileNotReadableException` first.
-- A replaced plain file wrapper is opened with mode `rbn` (was `rb`) and must report a regular file via `stream_stat()`.
+- For a plain path, a replaced `file` wrapper is opened with `rbn` (was `rb`) and must `stream_stat()` a regular file.
 ### Fixed
 - A local file swapped for a FIFO or device after the look at its name throws `FileNotFoundException`; it was read.
 - For a local file, warnings no longer reach the application's error handler; they are the exception's previous.
