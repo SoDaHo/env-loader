@@ -67,6 +67,23 @@ class RequestChannelTest extends EnvLoaderTestCase
         ]], $response);
     }
 
+    public function testGuardChecksARequiredKeyThatTheFileDoesNotOverwrite(): void
+    {
+        // With overwrite the file wins for its own keys, HTTP_X_TEST among them; a required key it does not have
+        // still takes its value from $_ENV, where the request put it
+        $response = $this->request('EGPCS', [
+            'overwrite' => true,
+            'required' => ['HTTP_X_ADMIN_TOKEN', 'HTTP_X_TEST'],
+            'rejectRequestVariables' => true,
+        ]);
+
+        $this->assertSame([
+            RequestVariableException::class,
+            'Value from the request in $_ENV for key: HTTP_X_ADMIN_TOKEN',
+            ['HTTP_X_TEST' => 'header', 'CONTENT_TYPE' => 'header', 'TEST_PARAM' => 'param', 'HTTP_X_ADMIN_TOKEN' => 'header'],
+        ], $response);
+    }
+
     public function testGuardHasNothingToDoWithoutAnEInVariablesOrder(): void
     {
         // PHP does not fill $_ENV then; what the application put there is no value from the request
