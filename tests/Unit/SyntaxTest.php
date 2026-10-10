@@ -166,7 +166,7 @@ class SyntaxTest extends EnvLoaderTestCase
     {
         $path = $this->createEnvFile("TEST_A=\"v\"\xA0# comment");
 
-        // On macOS, UTF-8 locales count the byte A0 as whitespace (1.x accepted it there)
+        // On macOS, UTF-8 locales count the byte A0 as whitespace; after a closing quote only ASCII whitespace counts
         setlocale(LC_CTYPE, 'en_US.UTF-8', 'C.UTF-8');
 
         $this->expectException(TrailingCharactersException::class);
@@ -181,7 +181,7 @@ class SyntaxTest extends EnvLoaderTestCase
         $value = str_repeat('a', 200_000);
 
         return [
-            // Larger than the PCRE limits (8 KB with JIT, 50 KB without) that once made this fail
+            // Larger than the PCRE limits (8 KB with JIT, 50 KB without) at which a regex reports an unterminated quote
             'double-quoted' => ['TEST_BIG="' . $value . '" # comment', ['TEST_BIG' => $value]],
             'double-quoted with escapes' => [
                 'TEST_BIG="' . str_repeat('\\"x\\\\\\n', 50_000) . '"',
