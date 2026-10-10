@@ -110,23 +110,36 @@ print_r($values);
 // Returns the content as a string; every value is double-quoted and escaped
 $content = EnvLoader::format(['DB_HOST' => 'localhost', 'DB_PASSWORD' => 'p@ss #1 "x"']);
 
+// parse() reads no file larger than 1 MiB, and escaping makes the content longer than the values
+if (strlen($content) > 1_048_576) {
+    throw new RuntimeException('.env content larger than 1 MiB');
+}
+
 // Outside the web root, readable only by its owner: tempnam() creates the file with mode 0600. Where $dir cannot be
-// written, it creates the file in the temporary directory of the system instead (with a notice), hence the check
-// of where it is; tempnam() reports the directory resolved (realpath). A write that stops short is caught by the
-// length, and the file with the values is removed on failure. rename() replaces the old file in one step, so no
-// reader sees a file half written
+// written, it creates the file in the temporary directory of the system instead (with a notice), hence the check of
+// where it is; tempnam() reports the directory resolved (realpath). A write that stops short is caught by the length.
+// rename() replaces the old file in one step, so no reader sees a file half written. The finally removes the file
+// with the values on any failure, also where an error handler throws, and keeps that exception; after rename() the
+// file is gone
 $dir = '/srv/app';
 $tmp = tempnam($dir, '.env');
-if ($tmp === false || dirname($tmp) !== realpath($dir)
-    || file_put_contents($tmp, $content) !== strlen($content) || !rename($tmp, "$dir/.env")) {
-    if ($tmp !== false) {
+if ($tmp === false) {
+    throw new RuntimeException("Could not create a file in $dir");
+}
+try {
+    if (dirname($tmp) !== realpath($dir)
+        || file_put_contents($tmp, $content) !== strlen($content)
+        || !rename($tmp, "$dir/.env")) {
+        throw new RuntimeException('Could not write .env');
+    }
+} finally {
+    if (file_exists($tmp)) {
         @unlink($tmp);
     }
-    throw new RuntimeException('Could not write .env');
 }
 ```
 
-`parse()` reads formatted content back unchanged, so a script that generates a .env file (e.g. a container entrypoint) should use it instead of writing `KEY=$value` lines itself. Values that are not strings or contain a line break or NUL byte throw `InvalidValueException`.
+`parse()` reads formatted content of up to 1 MiB back unchanged (escaping makes it longer: a value of backslashes or double quotes doubles), so a script that generates a .env file (e.g. a container entrypoint) should use it instead of writing `KEY=$value` lines itself. Values that are not strings or contain a line break or NUL byte throw `InvalidValueException`.
 
 The content is for `parse()`, not for a shell or another tool: `$`, backticks and `${…}` stay as they are inside the double quotes. A shell that reads the file (`source .env`, `set -a; . ./.env`) runs `$(…)` and backticks and expands `$VAR`, Docker Compose expands `${…}` in an `env_file`, and `docker run --env-file` keeps the quotes as part of the value. Never let a shell read a file with values you do not control.
 

@@ -9,6 +9,7 @@ use Random\Engine\Mt19937;
 use Random\Randomizer;
 use Sodaho\EnvLoader\EnvLoader;
 use Sodaho\EnvLoader\Exception\EnvLoaderException;
+use Sodaho\EnvLoader\Exception\FileNotReadableException;
 use Sodaho\EnvLoader\Exception\InvalidKeyException;
 use Sodaho\EnvLoader\Exception\InvalidValueException;
 
@@ -75,6 +76,19 @@ class FormatTest extends EnvLoaderTestCase
         $path = $this->createEnvFile(EnvLoader::format($values));
 
         $this->assertSame($values, EnvLoader::parse($path));
+    }
+
+    public function testFormattedContentIsReadBackUpToTheLimitOfAFile(): void
+    {
+        // 1 MiB with the key, the quotes and the line ending
+        $values = ['K' => str_repeat('a', 1_048_576 - strlen("K=\"\"\n"))];
+        $this->assertSame($values, EnvLoader::parse($this->createEnvFile(EnvLoader::format($values))));
+
+        // Escaping doubles a value of backslashes: 600 000 of them do not fit into a file parse() reads
+        $content = EnvLoader::format(['K' => str_repeat('\\', 600_000)]);
+        $this->assertSame(1_200_005, strlen($content));
+        $this->expectException(FileNotReadableException::class);
+        EnvLoader::parse($this->createEnvFile($content));
     }
 
     /**
