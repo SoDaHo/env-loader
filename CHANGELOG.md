@@ -10,6 +10,7 @@
 - Development (not part of the package): CI looks up the locked development tools in the security advisories (`composer audit`; an unreachable Packagist only warns), and a job fails after ten minutes instead of hanging.
 
 ### Fixed
+- An error handler of the application that throws even for warnings suppressed with `@` no longer replaces the result of `parse()` and `load()` with its `ErrorException`: the warnings of opening and reading the file, also those of a stream wrapper and of closing it, do not reach it. Every failure is reported as an `EnvLoaderException`.
 - A local file is checked on what was opened (`fstat()`), no longer on its name before opening, and it is opened without blocking: a FIFO or device that replaced the file between the check and the opening was read, and a FIFO made `parse()` wait for a writer. It throws `FileNotFoundException` (`Not a file: …`) now, as a FIFO or device named in the first place does.
 - A UTF-8 BOM after a line of whitespace is skipped, as after an empty line: such a line is skipped like an empty one, but it threw `InvalidKeyException` for the BOM.
 - The class documentation of `FileNotFoundException`, `FileNotReadableException`, `InvalidValueException` and `MissingRequiredKeyException` names every case that throws them (it described one each).
@@ -20,6 +21,7 @@
 - `parse()` and `load()` read a local file only: a URL that PHP would open with a stream wrapper (a scheme followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Stream wrapper not allowed: …` before anything is done with it. A wrapper could read an archive or a file on another host where a path to a configuration file was meant.
 
 ### Upgrading from 2.0.1
+- **An error handler that throws for suppressed warnings:** it no longer sees the warnings of opening and reading the file. Where it turned them into an `ErrorException`, `parse()` and `load()` throw their `EnvLoaderException` now, or return the values where the warning came with a successful read (a stream wrapper that warns when it is closed).
 - **A file larger than 1 MiB:** `FileNotReadableException` with `File too large: …`, where 2.0.1 read it.
 - **A Unix socket as the path:** `FileNotReadableException` with `Could not read file: …` (it cannot be opened), where 2.0.1 threw `FileNotFoundException` with `Not a file: …`.
 - **A URL as the path** (`phar://`, `file://`, …): `FileNotFoundException` with `Stream wrapper not allowed: …`, where 2.0.1 opened it with its wrapper. Pass a local path (drop `file://`), or pass `allowStreamWrappers: true` to keep the wrapper. URLs that 2.0.1 could not stat (`http://`, `php://filter`, `data:`) threw `FileNotFoundException` with `File not found: …`; the class stays, the message is the new one.

@@ -180,13 +180,15 @@ try {
 | Exception | When |
 |-----------|------|
 | `FileNotFoundException` | File does not exist, is not a regular file (directory, FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the path is a URL of a stream wrapper (without `allowStreamWrappers`) |
-| `FileNotReadableException` | File exists but cannot be read, is larger than 1 MiB, or reading it failed or stopped before its end (an error handler of yours that throws even for messages suppressed with `@` throws instead; if it throws while the file is closed, you get that exception, whatever `parse()` would have returned or thrown, with an exception thrown before as its previous) |
+| `FileNotReadableException` | File exists but cannot be read, is larger than 1 MiB, or reading it failed or stopped before its end |
 | `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
 | `UnterminatedQuoteException` | Quoted value missing closing quote |
 | `TrailingCharactersException` | Text other than a comment after the closing quote |
 | `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment |
 | `InvalidValueException` | `parse()`, `load()`: a value contains a NUL byte. `format()`: value is not a string, or contains a line break or NUL byte |
+
+The warnings PHP raises while the file is opened and read (`open_basedir`, a failed open or read, also those of a stream wrapper) do not reach an error handler of yours: every failure is one of these exceptions, also where your handler throws even for warnings suppressed with `@`.
 
 An entry of `required` that has no string form (an array, an object without `__toString()`) is a mistake in the code, not in the file: it throws `\InvalidArgumentException`, which is no `EnvLoaderException`.
 

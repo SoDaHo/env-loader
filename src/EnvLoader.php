@@ -206,62 +206,98 @@ final class EnvLoader
             throw new Exception\FileNotFoundException("Stream wrapper not allowed: $path");
         }
 
-        // Suppress the open_basedir warning: every failure is reported as an exception
-        if (!@file_exists($path)) {
+        // The warnings of opening and reading (open_basedir, a failed open or read, those of a stream wrapper) do not
+        // reach an error handler of the application: every failure is reported as an exception of this library, and
+        // a handler that throws even for suppressed warnings would replace it with an ErrorException of its own
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $handle = self::open($path, $streamUrl);
+
+            try {
+                return self::contents($handle, $path, $streamUrl);
+            } finally {
+                fclose($handle);
+            }
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * The open file. Whether it can be read is decided by opening it, not by asking first: is_readable() checks
+     * the real user instead of the effective one, and the file may change between the question and the opening.
+     *
+     * @throws Exception\FileNotFoundException
+     * @throws Exception\FileNotReadableException
+     *
+     * @return resource
+     */
+    private static function open(string $path, bool $streamUrl)
+    {
+        // Also false outside open_basedir
+        if (!file_exists($path)) {
             throw new Exception\FileNotFoundException("File not found: $path");
         }
 
         // A URL is checked with the stat of its wrapper before it is opened, as in 2.0: not every wrapper can stat
-        // an open stream. A local file is checked after opening, on the handle (below)
+        // an open stream. A local file is checked after opening, on the handle (contents())
         if ($streamUrl && !is_file($path)) {
             throw new Exception\FileNotFoundException("Not a file: $path");
         }
 
-        // Whether the file can be read is decided by opening it, not by asking first: is_readable() checks the
-        // real user instead of the effective one, and the file may change between the question and the opening.
         // A local file is opened without blocking ("n", O_NONBLOCK of the plain file wrapper): a FIFO would wait for
-        // a writer before it could be rejected. The warning is suppressed, the failure reported as an exception
-        $handle = @fopen($path, $streamUrl ? 'rb' : 'rbn');
+        // a writer before it could be rejected
+        $handle = fopen($path, $streamUrl ? 'rb' : 'rbn');
 
         if ($handle === false) {
             throw new Exception\FileNotReadableException("Could not read file: $path");
         }
 
-        try {
-            // Checked on what was opened, not on the name: by now the name may lead elsewhere (a FIFO, a device)
-            if (!$streamUrl && !self::isRegularFile($handle)) {
-                throw new Exception\FileNotFoundException("Not a file: $path");
-            }
+        return $handle;
+    }
 
-            // fread() tells a failed read (false) from one without data (''), unlike fgets(); feof() then tells the
-            // end of the file from a stream that has stopped delivering (a timeout, say)
-            $content = '';
-            while (true) {
-                $chunk = @fread($handle, self::CHUNK_SIZE);
+    /**
+     * What the open file holds, read to its end.
+     *
+     * @param resource $handle
+     *
+     * @throws Exception\FileNotFoundException
+     * @throws Exception\FileNotReadableException
+     */
+    private static function contents($handle, string $path, bool $streamUrl): string
+    {
+        // Checked on what was opened, not on the name: by now the name may lead elsewhere (a FIFO, a device)
+        if (!$streamUrl && !self::isRegularFile($handle)) {
+            throw new Exception\FileNotFoundException("Not a file: $path");
+        }
 
-                if ($chunk === false) {
-                    throw new Exception\FileNotReadableException("Could not read file: $path");
-                }
-                if ($chunk === '') {
-                    break;
-                }
+        // fread() tells a failed read (false) from one without data (''), unlike fgets(); feof() then tells the end
+        // of the file from a stream that has stopped delivering (a timeout, say)
+        $content = '';
+        while (true) {
+            $chunk = fread($handle, self::CHUNK_SIZE);
 
-                // Counted while reading, not taken from the size of the file: a stream may not know its size, and a
-                // file may grow while it is read. Memory stays bounded whatever the file holds
-                $content .= $chunk;
-                if (strlen($content) > self::MAX_FILE_SIZE) {
-                    throw new Exception\FileNotReadableException("File too large: $path");
-                }
-            }
-
-            if (!feof($handle)) {
+            if ($chunk === false) {
                 throw new Exception\FileNotReadableException("Could not read file: $path");
             }
+            if ($chunk === '') {
+                break;
+            }
 
-            return $content;
-        } finally {
-            @fclose($handle);
+            // Counted while reading, not taken from the size of the file: a stream may not know its size, and a
+            // file may grow while it is read. Memory stays bounded whatever the file holds
+            $content .= $chunk;
+            if (strlen($content) > self::MAX_FILE_SIZE) {
+                throw new Exception\FileNotReadableException("File too large: $path");
+            }
         }
+
+        if (!feof($handle)) {
+            throw new Exception\FileNotReadableException("Could not read file: $path");
+        }
+
+        return $content;
     }
 
     /**
