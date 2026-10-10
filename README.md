@@ -146,6 +146,7 @@ Details:
 - **Single quotes:** literal, a single-quoted value cannot contain `'`.
 - **Ignored lines:** empty lines and comment lines. Every other line has to be an assignment: a line without `=` throws.
 - **Whitespace** around keys and values, and at both ends of a line, is removed: space, tab, vertical tab, form feed and NUL, the same on every PHP version.
+- **`export`** is followed by a space or a tab, as in a shell: `export<VT>KEY=1` (vertical tab, form feed) throws `InvalidKeyException`.
 - **NUL bytes** inside a value throw `InvalidValueException`, quoted or not: no environment value can hold one.
 - **Duplicate keys:** the last one wins.
 - **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; one UTF-8 BOM at the start of the first line that is not empty is skipped (only the whole three bytes). A value cannot contain a line break.

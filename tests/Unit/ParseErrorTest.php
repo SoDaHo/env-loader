@@ -112,6 +112,9 @@ class ParseErrorTest extends EnvLoaderTestCase
             'NUL inside' => ["TEST\0KEY=hunter2"],
             'BOM in a later line' => ["\xEF\xBB\xBFTEST_KEY=hunter2"],
             'invalid key with unterminated quote' => ['TEST-KEY="hunter2'],
+            // export is followed by a space or a tab, as in a shell; another whitespace makes it part of the key
+            'export before a vertical tab' => ["export\vTEST_KEY=hunter2"],
+            'export before a form feed' => ["export\fTEST_KEY=hunter2"],
         ];
     }
 
