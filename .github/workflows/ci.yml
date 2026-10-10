@@ -1,6 +1,7 @@
 # PHP 8.6 is not released yet: the tests run on its pre-release build as well and may fail there without
 # failing the run (continue-on-error). The Composer files, static analysis and code style are checked on 8.5.
-# Actions are pinned to the commit of a release; the comment names the release.
+# Actions are pinned to the commit of a release, the container to the digest of its image; the comment names the
+# release or tag (shivammathur/node:24.04 as of 2026-10-10).
 name: CI
 
 on:
@@ -16,7 +17,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container: shivammathur/node:24.04
+    container: shivammathur/node@sha256:ee402d3448af7d680cc697f0cd76f62b04598a527044e38dc4cf1c3404b13071 # 24.04
     # A run takes a few minutes; a test that hangs (a FIFO opened blocking, say) must not hold the runner
     timeout-minutes: 10
     continue-on-error: ${{ matrix.php == '8.6' }}
@@ -84,7 +85,7 @@ jobs:
 
   checks:
     runs-on: ubuntu-latest
-    container: shivammathur/node:24.04
+    container: shivammathur/node@sha256:ee402d3448af7d680cc697f0cd76f62b04598a527044e38dc4cf1c3404b13071 # 24.04
     timeout-minutes: 10
     name: Composer files, static analysis and code style
 

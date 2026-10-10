@@ -18,7 +18,7 @@ composer install
 ## Development Commands
 
 ```bash
-# Run all checks (CI)
+# Run the code checks: code style, static analysis, tests
 composer ci
 
 # Individual commands
@@ -74,4 +74,4 @@ composer test:coverage
 3. Run `composer ci` - all checks must pass
 4. Submit PR against `main`
 
-CI checks `composer.json` and `composer.lock` (`composer validate --strict`), runs the tests, static analysis and code style checks on PHP 8.5, and looks up the locked development tools in the security advisories (`composer audit`; it only warns where Packagist cannot be reached). In CI the FastCGI and CGI tests are required: php-cgi and phpdbg are installed, and a skipped test fails the run. A job that runs longer than ten minutes fails. The tests also run on the pre-release of PHP 8.6; a failure there does not fail the run.
+CI also checks `composer.json` and `composer.lock` (`composer validate --strict`), runs the tests, static analysis and code style checks on PHP 8.5, and looks up the locked development tools in the security advisories (`composer audit`; it only warns where Packagist cannot be reached). In CI the FastCGI and CGI tests are required: php-cgi and phpdbg are installed, and a skipped test fails the run. A job that runs longer than ten minutes fails. The tests also run on the pre-release of PHP 8.6; a failure there does not fail the run.
