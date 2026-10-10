@@ -495,7 +495,8 @@ final class EnvLoader
     /**
      * Format key-value pairs as .env content that parse() reads back unchanged.
      *
-     * Every value is double-quoted. Writing the file is left to the caller.
+     * Every value is double-quoted. Writing the file is left to the caller. The content is meant for parse(), not
+     * for a shell: $, backticks and ${...} stay as they are (README).
      *
      * @param array<string> $values Key-value pairs
      *

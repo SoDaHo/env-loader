@@ -75,7 +75,8 @@ What the web server passes with a request is not part of it. Under FastCGI (PHP-
 
 What to know about the edges:
 
-- **Plain CGI:** there the request is the environment of the process. `load()` recognizes it by `GATEWAY_INTERFACE`, which CGI/1.1 requires every gateway to set, and does not read the process environment; only `$_ENV` and the file count, as in 1.x. A gateway that omits the variable is not recognized.
+- **Plain CGI:** there the request is the environment of the process. `load()` recognizes it by `GATEWAY_INTERFACE`, which CGI/1.1 requires every gateway to set, and does not read the process environment; only `$_ENV` and the file count, as in 1.x. A variable the web server sets for the script (Apache `SetEnv`) is part of that environment and so loses against the file (where no `E` in `variables_order` has put it into `$_ENV`). A gateway that omits `GATEWAY_INTERFACE` is not recognized: there the request is read as process environment and wins over the file.
+- **Configuration of the web server** (Apache `SetEnv`, nginx `fastcgi_param`) reaches PHP-FPM with the request, not as process environment: `load()` does not read it, and the file wins — unless an `E` in `variables_order` puts it into `$_ENV` (above). Values per deployment belong into the environment of the PHP process (`env[NAME]` in the pool, Docker, systemd).
 - **PHP-FPM** clears the environment of its workers (`USER` and `HOME` remain) unless the pool says `clear_env = no` (the official Docker image does) or lists the variables with `env[NAME]`.
 - **`getenv()` disabled** (`disable_functions`): the process environment is not read.
 
@@ -109,16 +110,25 @@ print_r($values);
 // Returns the content as a string; every value is double-quoted and escaped
 $content = EnvLoader::format(['DB_HOST' => 'localhost', 'DB_PASSWORD' => 'p@ss #1 "x"']);
 
-// Outside the web root, readable only by its owner: tempnam() creates the file with mode 0600 (in $dir, which
-// must be writable). rename() replaces the old file in one step, so no reader sees a file half written
+// Outside the web root, readable only by its owner: tempnam() creates the file with mode 0600. Where $dir cannot be
+// written, it creates the file in the temporary directory of the system instead (with a notice), hence the check
+// of where it is; tempnam() reports the directory resolved (realpath). A write that stops short is caught by the
+// length, and the file with the values is removed on failure. rename() replaces the old file in one step, so no
+// reader sees a file half written
 $dir = '/srv/app';
 $tmp = tempnam($dir, '.env');
-if ($tmp === false || file_put_contents($tmp, $content) === false || !rename($tmp, "$dir/.env")) {
+if ($tmp === false || dirname($tmp) !== realpath($dir)
+    || file_put_contents($tmp, $content) !== strlen($content) || !rename($tmp, "$dir/.env")) {
+    if ($tmp !== false) {
+        @unlink($tmp);
+    }
     throw new RuntimeException('Could not write .env');
 }
 ```
 
 `parse()` reads formatted content back unchanged, so a script that generates a .env file (e.g. a container entrypoint) should use it instead of writing `KEY=$value` lines itself. Values that are not strings or contain a line break or NUL byte throw `InvalidValueException`.
+
+The content is for `parse()`, not for a shell or another tool: `$`, backticks and `${…}` stay as they are inside the double quotes. A shell that reads the file (`source .env`, `set -a; . ./.env`) runs `$(…)` and backticks and expands `$VAR`, Docker Compose expands `${…}` in an `env_file`, and `docker run --env-file` keeps the quotes as part of the value. Never let a shell read a file with values you do not control.
 
 ## Supported .env Syntax
 
@@ -238,7 +248,7 @@ This library intentionally writes **only to `$_ENV`**, not `putenv()` or `$_SERV
 
 `$_ENV` is process-local: no other process sees it, and nothing outside PHP changes it. Use `$_ENV['KEY']` instead of `getenv('KEY')` in your application.
 
-**Load once per worker.** In a long-running worker (Swoole, RoadRunner, FrankenPHP in worker mode) `$_ENV` lives as long as the worker and is shared by every request it handles. Call `load()` once when the worker starts, with a fixed path. A second `load()` with another file does not replace the first: without `overwrite` the keys already in `$_ENV` keep their values, and keys that only the first file has stay, with `overwrite` as well — `load('a.env'); load('b.env');` mixes both. For configuration per tenant or per request, use `parse()` and keep the values in an object of your own instead of `$_ENV`.
+**Load once per worker.** In a long-running worker (Swoole, RoadRunner, FrankenPHP in worker mode) `$_ENV` lives as long as the worker and is shared by every request it handles. Call `load()` once when the worker starts, with a fixed path. A second `load()` with another file does not replace the first: without `overwrite` the keys already in `$_ENV` keep their values, and keys that only the first file has stay, with `overwrite` as well — `load('a.env'); load('b.env');` mixes both, and a key removed from the file keeps its old value until the worker ends: a rotated secret needs a new worker. For configuration per tenant or per request, use `parse()` and keep the values in an object of your own instead of `$_ENV`.
 
 `load()` reads the process environment (`getenv($key, true)`) to let its variables win over the file. It never changes it.
 
