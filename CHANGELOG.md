@@ -2,39 +2,45 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-10
+
+Three options for `load()`, a size limit, and only local files unless stream wrappers are allowed. New parameters come after the existing ones, so positional calls keep working. What a caller may notice is listed under "Upgrading from 2.0.1".
+
 ### Added
+- `requireNonEmpty` for `load()`: a required key also fails with an empty value. Checked is the value `load()` leaves in `$_ENV`, so also an empty variable of the environment that wins over the file (Docker Compose sets one where the host has no value) makes the load fail instead of leaving an empty secret; the empty variable still wins where nothing is required. The message names such keys as `Empty required key: A` (`Empty required keys: A, B`), after the missing ones, separated by `; `.
+- `rejectRequestVariables` for `load()`: throws the new `RequestVariableException` before anything is written, where a key named like a request variable (`HTTP_*`, `REDIRECT_*`, a CGI meta-variable such as `CONTENT_TYPE`, `QUERY_STRING` or `REMOTE_USER`) would take its value from `$_ENV` while PHP fills `$_ENV` with the request (under PHP-FPM or CGI with an `E` in `variables_order`); a value equal to the variable of the process environment passes. Without an `E`, and on the command line, it has nothing to do.
+- `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0.x did.
 - `SECURITY.md`: how to report a vulnerability (GitHub's private vulnerability reporting), which versions get fixes (the latest release only), and what is outside the reach of the library.
-- `rejectRequestVariables` for `load()`: throws the new `RequestVariableException` before anything is written, where a key named like a request variable (`HTTP_*`, `REDIRECT_*`, a CGI meta-variable such as `CONTENT_TYPE`, `QUERY_STRING` or `REMOTE_USER`) would take its value from `$_ENV` while PHP fills `$_ENV` with the request (under PHP-FPM or CGI with an `E` in `variables_order`); a value equal to the variable of the process environment passes. Without it, and with `GPCS`, nothing changes.
-- `requireNonEmpty` for `load()`: a required key also fails with an empty value. Checked is the value `load()` leaves in `$_ENV`, so also an empty variable of the environment that wins over the file (Docker Compose sets one where the host has no value) makes the load fail instead of leaving an empty secret. The message names such keys as `Empty required key: A` (`Empty required keys: A, B`), after the missing ones, separated by `; `.
-- `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0 did.
 
 ### Changed
 - `parse()` reads the whole file before it parses its first line (it parsed while reading): a read that fails or stops throws `FileNotReadableException` even where a line before it is malformed.
 - Development (not part of the package): CI looks up the locked development tools in the security advisories (`composer audit`; an unreachable Packagist only warns), and a job fails after ten minutes instead of hanging.
 
 ### Fixed
+- A local file is checked on what was opened (`fstat()`), no longer on its name before opening, and it is opened without blocking: a FIFO or device that replaced the file between the check and the opening was read, and a FIFO made `parse()` wait for a writer. It throws `FileNotFoundException` (`Not a file: …`) now, as a FIFO or device named in the first place does.
+- An error handler of the application that throws even for warnings suppressed with `@` no longer replaces the result of `parse()` and `load()` with its `ErrorException`: the warnings of opening and reading the file, also those of a stream wrapper and of closing it, do not reach it. Every failure is reported as an `EnvLoaderException`.
+- A required key whose value in `$_ENV` is no string (set there by the application: `42`, `false`, `null`) throws `MissingRequiredKeyException` with `Required key without a string value: A` before anything is written; it passed, and the value stayed in `$_ENV`. The value of a key that is not required is still kept as it is.
+- A UTF-8 BOM after a line of whitespace is skipped, as after an empty line: such a line is skipped like an empty one, but it threw `InvalidKeyException` for the BOM.
+- README: "a request cannot overrule the file" is gone; it held only without an `E` in `variables_order`. The README asks for `variables_order = "GPCS"` under PHP-FPM and CGI (PHP uses `EGPCS` without a php.ini, as in the official Docker image) and names `rejectRequestVariables` as a guard.
 - README: the content of `format()` is for `parse()`, not for a shell or another tool (`$`, backticks and `${…}` stay as they are: `source .env` runs `$(…)`, Docker Compose expands `${…}`, `docker run --env-file` keeps the quotes). The example for writing a file checks that `tempnam()` did not fall back to the temporary directory of the system, catches a write that stops short and removes the file with the values on failure.
 - README: under plain CGI a variable the web server sets for the script (`SetEnv`) loses against the file, and a gateway without `GATEWAY_INTERFACE` lets the request win over it; under PHP-FPM `SetEnv` and `fastcgi_param` arrive with the request and are not read either. In a long-running worker a key removed from the file keeps its old value.
-- README: "a request cannot overrule the file" is gone; it held only without an `E` in `variables_order`. The README asks for `variables_order = "GPCS"` under PHP-FPM and CGI (PHP uses `EGPCS` without a php.ini, as in the official Docker image) and names `rejectRequestVariables` as a guard.
-- A required key whose value in `$_ENV` is no string (set there by the application: `42`, `false`, `null`) throws `MissingRequiredKeyException` with `Required key without a string value: A` before anything is written; it passed, and the value stayed in `$_ENV`. The value of a key that is not required is still kept as it is.
-- An error handler of the application that throws even for warnings suppressed with `@` no longer replaces the result of `parse()` and `load()` with its `ErrorException`: the warnings of opening and reading the file, also those of a stream wrapper and of closing it, do not reach it. Every failure is reported as an `EnvLoaderException`.
-- A local file is checked on what was opened (`fstat()`), no longer on its name before opening, and it is opened without blocking: a FIFO or device that replaced the file between the check and the opening was read, and a FIFO made `parse()` wait for a writer. It throws `FileNotFoundException` (`Not a file: …`) now, as a FIFO or device named in the first place does.
-- A UTF-8 BOM after a line of whitespace is skipped, as after an empty line: such a line is skipped like an empty one, but it threw `InvalidKeyException` for the BOM.
-- The class documentation of `FileNotFoundException`, `FileNotReadableException`, `InvalidValueException` and `MissingRequiredKeyException` names every case that throws them (it described one each).
 - README: `export` is followed by a space or a tab, as in a shell; after another whitespace (vertical tab, form feed) it is part of the key, which is invalid.
+- The class documentation of `FileNotFoundException`, `FileNotReadableException`, `InvalidValueException` and `MissingRequiredKeyException` names every case that throws them (it described one each).
 
 ### Security
-- Messages name required keys with control characters escaped (a line break as `\x0A`, NUL as `\x00`): a name passed in `required` with a line break added a line of its own to a log that writes the message.
-- No file larger than 1 MiB is read: it throws `FileNotReadableException` with `File too large: …`, counted while reading, so also for a stream that tells no size. A larger file was read up to the memory limit, and running out of memory was a fatal error whose backtrace could show the start of a line. A line is bounded by the file.
 - `parse()` and `load()` read a local file only: a URL that PHP would open with a stream wrapper (a scheme followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Stream wrapper not allowed: …` before anything is done with it. A wrapper could read an archive or a file on another host where a path to a configuration file was meant.
+- No file larger than 1 MiB is read: it throws `FileNotReadableException` with `File too large: …`, counted while reading, so also for a stream that tells no size. A larger file was read up to the memory limit, and running out of memory was a fatal error whose backtrace could show the start of a line. A line is bounded by the file.
+- Messages name required keys with control characters escaped (a line break as `\x0A`, NUL as `\x00`): a name passed in `required` with a line break added a line of its own to a log that writes the message.
 
 ### Upgrading from 2.0.1
-- **A required key with a control character in its name:** the message shows it escaped (`\x0A`), where 2.0.1 showed it as it is.
-- **A required key with a value in `$_ENV` that is no string** (put there by the application): `MissingRequiredKeyException`, where 2.0.1 passed. Put a string into `$_ENV`, or let the file overwrite it (`overwrite: true`).
-- **An error handler that throws for suppressed warnings:** it no longer sees the warnings of opening and reading the file. Where it turned them into an `ErrorException`, `parse()` and `load()` throw their `EnvLoaderException` now, or return the values where the warning came with a successful read (a stream wrapper that warns when it is closed).
-- **A file larger than 1 MiB:** `FileNotReadableException` with `File too large: …`, where 2.0.1 read it.
-- **A Unix socket as the path:** `FileNotReadableException` with `Could not read file: …` (it cannot be opened), where 2.0.1 threw `FileNotFoundException` with `Not a file: …`.
+Code that loads a local file of at most 1 MiB, with keys and required keys that are plain names, needs no change. A caller can notice these differences:
 - **A URL as the path** (`phar://`, `file://`, …): `FileNotFoundException` with `Stream wrapper not allowed: …`, where 2.0.1 opened it with its wrapper. Pass a local path (drop `file://`), or pass `allowStreamWrappers: true` to keep the wrapper. URLs that 2.0.1 could not stat (`http://`, `php://filter`, `data:`) threw `FileNotFoundException` with `File not found: …`; the class stays, the message is the new one.
+- **A file larger than 1 MiB:** `FileNotReadableException` with `File too large: …`, where 2.0.1 read it.
+- **A required key with a value in `$_ENV` that is no string** (put there by the application): `MissingRequiredKeyException` with `Required key without a string value: …`, where 2.0.1 passed. Put a string into `$_ENV`, or let the file overwrite it (`overwrite: true`). Code that compares the message has to accept the parts joined by `; `.
+- **An error handler that throws for suppressed warnings:** it no longer sees the warnings of opening and reading the file. Where it turned them into an `ErrorException`, `parse()` and `load()` throw their `EnvLoaderException` now, or return the values where the warning came with a successful read (a stream wrapper that warns when it is closed).
+- **A required key with a control character in its name:** the message shows it escaped (`\x0A`), where 2.0.1 showed it as it is.
+- **A Unix socket as the path:** `FileNotReadableException` with `Could not read file: …` (it cannot be opened), where 2.0.1 threw `FileNotFoundException` with `Not a file: …`.
+- **A read that fails after a malformed line** (an I/O error, a stream wrapper): `FileNotReadableException`, where 2.0.1 threw the error of that line, as the file is read to its end before a line is parsed.
 - **A BOM after a line of whitespace:** the file is read, where 2.0.1 threw `InvalidKeyException`.
 
 ## [2.0.1] - 2026-10-09
@@ -149,7 +155,8 @@ Breaks compatibility with 1.x; what to change is listed under "Upgrading from 1.
 - PHPStan level 9 static analysis.
 - GitHub Actions CI for PHP 8.2, 8.3, 8.4, 8.5.
 
-[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/SoDaHo/env-loader/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/SoDaHo/env-loader/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/SoDaHo/env-loader/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/SoDaHo/env-loader/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/SoDaHo/env-loader/compare/v1.1.0...v1.1.1
