@@ -8,8 +8,8 @@ use Sodaho\EnvLoader\EnvLoader;
 use Sodaho\EnvLoader\Exception\MissingRequiredKeyException;
 
 /**
- * Under FastCGI and CGI a request must not overrule the file: what the web server passes is no process
- * environment.
+ * Under FastCGI and CGI a request must not overrule the file through getenv(): what the web server passes is no
+ * process environment. (Through $_ENV, with an E in variables_order, see RequestChannelTest.)
  *
  * The requests run through php-cgi. CI installs it and fails on a skipped test, so these tests guard that every
  * getenv() call asks only the process (local_only): without it, the FastCGI tests see the request.

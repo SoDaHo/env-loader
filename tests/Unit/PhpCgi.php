@@ -208,6 +208,9 @@ class PhpCgi
         return explode("\r\n\r\n", $output, 2)[1] ?? '';
     }
 
+    /**
+     * An address on the loopback interface with a port no one listens on.
+     */
     private static function freeAddress(): string
     {
         $server = stream_socket_server('tcp://127.0.0.1:0');
@@ -222,6 +225,8 @@ class PhpCgi
     }
 
     /**
+     * The connection to php-cgi, tried until it listens or the deadline has passed.
+     *
      * @return resource
      */
     private static function connect(string $address, float $deadline)
@@ -241,6 +246,8 @@ class PhpCgi
     }
 
     /**
+     * Ends php-cgi, by force where it ignores the signal.
+     *
      * @param resource $process
      */
     private static function stop($process): void
@@ -258,11 +265,17 @@ class PhpCgi
         proc_close($process);
     }
 
+    /**
+     * A FastCGI record of the type for request 1.
+     */
     private static function record(int $type, string $content): string
     {
         return pack('CCnnCx', 1, $type, 1, strlen($content), 0) . $content;
     }
 
+    /**
+     * The length of a name or value as FastCGI encodes it: one byte below 128, four bytes above.
+     */
     private static function length(string $text): string
     {
         $length = strlen($text);
