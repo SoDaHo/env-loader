@@ -11,8 +11,7 @@ use Sodaho\EnvLoader\Exception\FileNotReadableException;
 use Sodaho\EnvLoader\Exception\InvalidKeyException;
 
 /**
- * Which paths are read, and how: missing and unreadable files, stream wrappers, reads that fail or stop, chunks,
- * memory.
+ * Which paths are read, and how: missing and unreadable files, reads that fail or stop, chunks, memory.
  */
 class FileTest extends EnvLoaderTestCase
 {
@@ -191,6 +190,23 @@ class FileTest extends EnvLoaderTestCase
             $this->fail('Expected FileNotReadableException');
         } catch (FileNotReadableException $e) {
             // The part that was read is no line: it must not be reported as malformed
+            $this->assertSame("Could not read file: $path", $e->getMessage());
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
+    public function testReadFailureAfterAMalformedLineThrowsForTheFile(): void
+    {
+        // The file is read to its end before a line is parsed: a file that cannot be read is reported as such
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $path = $scheme . '://fails/' . rawurlencode("TEST_A=1\n123INVALID=value\n");
+
+        try {
+            EnvLoader::parse($path, allowStreamWrappers: true);
+            $this->fail('Expected FileNotReadableException');
+        } catch (FileNotReadableException $e) {
             $this->assertSame("Could not read file: $path", $e->getMessage());
         } finally {
             stream_wrapper_unregister($scheme);
@@ -409,59 +425,7 @@ class FileTest extends EnvLoaderTestCase
     {
         $path = $this->createEnvFile(str_repeat($lineEnding, 400_000) . 'TEST_KEY=value');
 
-        // An array of all lines would need more than the 8 MB the child process gets
-        $output = $this->parseInChildProcess($path, ['-d', 'memory_limit=8M']);
-
-        $this->assertSame('{"TEST_KEY":"value"}', $output);
-    }
-
-    #[DataProvider('lineEndingProvider')]
-    public function testLineIsNotHeldOnceTheNextIsHandedOut(string $lineEnding): void
-    {
-        if (PHP_OS_FAMILY === 'Windows') {
-            // There PHP grows a large string in steps of 2 MB by copying it, which counts it twice for a moment
-            $this->markTestSkipped('Windows counts a growing string twice');
-        }
-
-        // While the last line is parsed, the memory holds the value of the first line, the last line and its
-        // value: three times the length of a line. Holding the first line as well would make it four
-        $length = 8 * 1024 * 1024;
-        // Written in pieces, so the test itself needs no more memory than one line
-        $path = $this->createEnvFile('TEST_A=');
-        $this->writeFile($path, str_repeat('a', $length), FILE_APPEND);
-        $this->writeFile($path, $lineEnding . 'TEST_B=', FILE_APPEND);
-        $this->writeFile($path, str_repeat('b', $length), FILE_APPEND);
-
-        // Measured in a child process with a memory limit of its own
-        $script = 'require $argv[1];'
-            . 'class_exists(Sodaho\EnvLoader\EnvLoader::class);'
-            . 'memory_reset_peak_usage();'
-            . '$before = memory_get_usage();'
-            . '$values = Sodaho\EnvLoader\EnvLoader::parse($argv[2]);'
-            . 'echo json_encode([array_map("strlen", array_values($values)), memory_get_peak_usage() - $before]);';
-        $output = $this->runInChildProcess(
-            $script,
-            $path,
-            ['-d', 'max_memory_limit=-1', '-d', 'memory_limit=256M'],
-            ['XDEBUG_MODE' => 'off']
-        );
-        $result = json_decode($output, true, flags: JSON_THROW_ON_ERROR);
-        $this->assertIsArray($result);
-        [$lengths, $peak] = $result;
-
-        $this->assertSame([$length, $length], $lengths);
-        $this->assertIsInt($peak);
-        // The two values alone take twice the length: less would mean the measurement missed the parsing
-        $this->assertGreaterThan(2 * $length, $peak);
-        $this->assertLessThan(3.5 * $length, $peak);
-    }
-
-    #[DataProvider('lineEndingProvider')]
-    public function testFileLargerThanTheMemoryLimitIsRead(string $lineEnding): void
-    {
-        // 12 MB of comment lines: read in chunks, none of it stays in memory
-        $path = $this->createEnvFile(str_repeat(str_repeat('#', 119) . $lineEnding, 100_000) . 'TEST_KEY=value');
-
+        // The file is held once; an array of all lines would need more than the 8 MB the child process gets
         $output = $this->parseInChildProcess($path, ['-d', 'memory_limit=8M']);
 
         $this->assertSame('{"TEST_KEY":"value"}', $output);

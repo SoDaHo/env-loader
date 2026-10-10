@@ -152,6 +152,7 @@ Details:
 - **`export`** is followed by a space or a tab, as in a shell: `export<VT>KEY=1` (vertical tab, form feed) throws `InvalidKeyException`.
 - **NUL bytes** inside a value throw `InvalidValueException`, quoted or not: no environment value can hold one.
 - **Duplicate keys:** the last one wins.
+- **Size:** no file larger than 1 MiB (1 048 576 bytes) is read; a larger one throws `FileNotReadableException` (`File too large: …`). A line is bounded by the file, not by a limit of its own.
 - **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; one UTF-8 BOM at the start of the first line that is not empty (a line of whitespace counts as empty) is skipped (only the whole three bytes). A value cannot contain a line break.
 - **Encoding:** values are bytes, returned as they are in the file, without conversion. Write the file in UTF-8 or ASCII. Other encodings are not recognized: a value in Latin-1 comes back in Latin-1, and a file in UTF-16 is neither recognized nor reliably rejected.
 
@@ -179,7 +180,7 @@ try {
 | Exception | When |
 |-----------|------|
 | `FileNotFoundException` | File does not exist, is not a regular file (directory, FIFO, device) or cannot be reached (`open_basedir`, directory permissions); the path is a URL of a stream wrapper (without `allowStreamWrappers`) |
-| `FileNotReadableException` | File exists but cannot be read, or reading it failed or stopped before its end (an error handler of yours that throws even for messages suppressed with `@` throws instead; if it throws while the file is closed, you get that exception, whatever `parse()` would have returned or thrown, with an exception thrown before as its previous) |
+| `FileNotReadableException` | File exists but cannot be read, is larger than 1 MiB, or reading it failed or stopped before its end (an error handler of yours that throws even for messages suppressed with `@` throws instead; if it throws while the file is closed, you get that exception, whatever `parse()` would have returned or thrown, with an exception thrown before as its previous) |
 | `InvalidLineException` | Line is neither empty, a comment nor an assignment (no `=`) |
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
 | `UnterminatedQuoteException` | Quoted value missing closing quote |
@@ -189,7 +190,7 @@ try {
 
 An entry of `required` that has no string form (an array, an object without `__toString()`) is a mistake in the code, not in the file: it throws `\InvalidArgumentException`, which is no `EnvLoaderException`.
 
-Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from the stack traces of these exceptions as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out on a huge file, can show the start of a line; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
+Messages for errors in the file name the file, the line and, for quote errors and NUL bytes, the key — never a value, so a typo in a secret does not end up in logs. Arguments holding raw lines or values are hidden from the stack traces of these exceptions as well. One limit: the backtrace PHP itself prints for a fatal error (`fatal_error_backtraces`), such as memory running out, can show the start of a line or of the file. As no file larger than 1 MiB is read, parsing needs at most about 3 MiB beyond what the application uses, so that takes a `memory_limit` set that low; `zend.exception_ignore_args=1` (php.ini-production) keeps arguments out of the traces PHP generates for exceptions and fatal errors.
 
 Messages name the path as it was passed in, so keep secrets out of the path. The path is a local file: a URL that PHP would open with a stream wrapper — a scheme followed by `://` (`phar://`, `file://`, `php://`, `ftp://`, …) or `data:` — throws `FileNotFoundException` (`Stream wrapper not allowed: …`) before anything is done with it. `allowStreamWrappers: true` opens it with its wrapper, as 2.0 did: a wrapper that PHP can stat is read (a `phar://` path like a file), `http://` or `php://filter` throw `FileNotFoundException`. Either way the path is trusted input: never build it from a request.
 

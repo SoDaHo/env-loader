@@ -18,6 +18,8 @@ namespace Sodaho\EnvLoader\Tests\Unit;
  *             closed while it is being read.
  * - "locked": as "ends", but the stat shows no permission bits: is_readable() says no, although the file
  *             can be opened and read.
+ * - "large":  the path is a number: the file is that many bytes of "#", delivered in reads of up to 8192 bytes,
+ *             then it ends. The stream tells no size: only counting what is read finds out.
  *
  * "scheme://env" stands for "fails" after one whole line.
  */
@@ -35,6 +37,8 @@ class FailingReadStream
 
     private bool $failed = false;
 
+    private int $remaining = 0;
+
     public function stream_open(string $path): bool
     {
         $url = parse_url($path);
@@ -43,6 +47,11 @@ class FailingReadStream
         $this->endUnnoticed = $this->mode === 'closes' ? 2 : 0;
 
         $pieces = substr($url['path'] ?? '', 1);
+        if ($host === 'large') {
+            $this->mode = 'ends';
+            $this->remaining = (int) $pieces;
+            $pieces = '';
+        }
         $this->pieces = match (true) {
             $host === 'env' => ["TEST_KEY=value\n"],
             $pieces === '' => [],
@@ -54,6 +63,13 @@ class FailingReadStream
 
     public function stream_read(): string|false
     {
+        if ($this->remaining > 0) {
+            $length = min(8192, $this->remaining);
+            $this->remaining -= $length;
+
+            return str_repeat('#', $length);
+        }
+
         if ($this->pieces !== []) {
             return array_shift($this->pieces);
         }
@@ -73,7 +89,7 @@ class FailingReadStream
         if ($this->mode === 'fails' || $this->mode === 'breaks') {
             return $this->mode === 'breaks' && $this->failed;
         }
-        if ($this->pieces !== []) {
+        if ($this->pieces !== [] || $this->remaining > 0) {
             return false;
         }
 

@@ -6,6 +6,7 @@
 - `allowStreamWrappers` for `parse()` and `load()`: opens a URL with its stream wrapper, as 2.0 did.
 
 ### Changed
+- `parse()` reads the whole file before it parses its first line (it parsed while reading): a read that fails or stops throws `FileNotReadableException` even where a line before it is malformed.
 - Development (not part of the package): CI looks up the locked development tools in the security advisories (`composer audit`; an unreachable Packagist only warns), and a job fails after ten minutes instead of hanging.
 
 ### Fixed
@@ -15,9 +16,11 @@
 - README: `export` is followed by a space or a tab, as in a shell; after another whitespace (vertical tab, form feed) it is part of the key, which is invalid.
 
 ### Security
+- No file larger than 1 MiB is read: it throws `FileNotReadableException` with `File too large: …`, counted while reading, so also for a stream that tells no size. A larger file was read up to the memory limit, and running out of memory was a fatal error whose backtrace could show the start of a line. A line is bounded by the file.
 - `parse()` and `load()` read a local file only: a URL that PHP would open with a stream wrapper (a scheme followed by `://`, such as `phar://`, `file://` or `ftp://`, or `data:`) throws `FileNotFoundException` with `Stream wrapper not allowed: …` before anything is done with it. A wrapper could read an archive or a file on another host where a path to a configuration file was meant.
 
 ### Upgrading from 2.0.1
+- **A file larger than 1 MiB:** `FileNotReadableException` with `File too large: …`, where 2.0.1 read it.
 - **A Unix socket as the path:** `FileNotReadableException` with `Could not read file: …` (it cannot be opened), where 2.0.1 threw `FileNotFoundException` with `Not a file: …`.
 - **A URL as the path** (`phar://`, `file://`, …): `FileNotFoundException` with `Stream wrapper not allowed: …`, where 2.0.1 opened it with its wrapper. Pass a local path (drop `file://`), or pass `allowStreamWrappers: true` to keep the wrapper. URLs that 2.0.1 could not stat (`http://`, `php://filter`, `data:`) threw `FileNotFoundException` with `File not found: …`; the class stays, the message is the new one.
 - **A BOM after a line of whitespace:** the file is read, where 2.0.1 threw `InvalidKeyException`.

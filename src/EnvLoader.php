@@ -11,8 +11,8 @@ namespace Sodaho\EnvLoader;
  * Invariants: nothing but $_ENV is written (no putenv(), no $_SERVER); a load() that throws leaves $_ENV as it
  * was; messages never carry a value or a raw line of the file, only the path, the line number and, once it is
  * valid, the key, and the arguments in the stack traces of its exceptions hide them (#[\SensitiveParameter]).
- * Not covered: the backtrace PHP prints for a fatal error, such as memory running out on a huge line, can show
- * the start of a line (README).
+ * Not covered: the backtrace PHP prints for a fatal error, such as memory running out, can show the start of a
+ * line or of the file (README); with no file larger than MAX_FILE_SIZE read, that takes a memory_limit of a few MiB.
  */
 final class EnvLoader
 {
@@ -23,6 +23,9 @@ final class EnvLoader
 
     // Bytes asked for with one read
     private const CHUNK_SIZE = 8192;
+
+    // The largest file that is read (1 MiB). It bounds a line as well, and the memory needed to parse the file
+    private const MAX_FILE_SIZE = 1_048_576;
 
     // What trim() removes. Spelled out, because the default of PHP changes: from 8.6 it includes the form feed
     private const WHITESPACE = " \t\n\r\v\f\0";
@@ -162,6 +165,42 @@ final class EnvLoader
      */
     public static function parse(string $path, bool $allowStreamWrappers = false): array
     {
+        $result = [];
+        $bomPossible = true;
+
+        foreach (self::lines(self::read($path, $allowStreamWrappers)) as $lineNumber => $line) {
+            // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Empty as the
+            // parser sees it: a line of whitespace is skipped like an empty one, so it keeps the BOM possible. Only
+            // the whole sequence: single bytes of it, or a second BOM, stay and make the key invalid
+            if ($bomPossible && trim($line, self::WHITESPACE) !== '') {
+                if (str_starts_with($line, "\xEF\xBB\xBF")) {
+                    $line = substr($line, 3);
+                }
+                $bomPossible = false;
+            }
+
+            $parsed = self::parseLine($line, "$path on line $lineNumber");
+
+            if ($parsed !== null) {
+                [$key, $value] = $parsed;
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * The whole content of the file, at most MAX_FILE_SIZE bytes.
+     *
+     * The file is read to its end before a line is parsed: a read that fails or stops makes the whole file
+     * unreadable, so no part of it passes as complete, and no line cut off by it is reported as malformed.
+     *
+     * @throws Exception\FileNotFoundException
+     * @throws Exception\FileNotReadableException
+     */
+    private static function read(string $path, bool $allowStreamWrappers): string
+    {
         $streamUrl = self::isStreamUrl($path);
         if ($streamUrl && !$allowStreamWrappers) {
             throw new Exception\FileNotFoundException("Stream wrapper not allowed: $path");
@@ -188,46 +227,41 @@ final class EnvLoader
             throw new Exception\FileNotReadableException("Could not read file: $path");
         }
 
-        $result = [];
-        $bomPossible = true;
-
         try {
             // Checked on what was opened, not on the name: by now the name may lead elsewhere (a FIFO, a device)
             if (!$streamUrl && !self::isRegularFile($handle)) {
                 throw new Exception\FileNotFoundException("Not a file: $path");
             }
 
-            $lines = self::lines($handle);
+            // fread() tells a failed read (false) from one without data (''), unlike fgets(); feof() then tells the
+            // end of the file from a stream that has stopped delivering (a timeout, say)
+            $content = '';
+            while (true) {
+                $chunk = @fread($handle, self::CHUNK_SIZE);
 
-            foreach ($lines as $lineNumber => $line) {
-                // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Empty as the parser
-                // sees it: a line of whitespace is skipped like an empty one, so it keeps the BOM possible. Only the whole
-                // sequence: single bytes of it, or a second BOM, stay and make the key invalid
-                if ($bomPossible && trim($line, self::WHITESPACE) !== '') {
-                    if (str_starts_with($line, "\xEF\xBB\xBF")) {
-                        $line = substr($line, 3);
-                    }
-                    $bomPossible = false;
+                if ($chunk === false) {
+                    throw new Exception\FileNotReadableException("Could not read file: $path");
+                }
+                if ($chunk === '') {
+                    break;
                 }
 
-                $parsed = self::parseLine($line, "$path on line $lineNumber");
-
-                if ($parsed !== null) {
-                    [$key, $value] = $parsed;
-                    $result[$key] = $value;
+                // Counted while reading, not taken from the size of the file: a stream may not know its size, and a
+                // file may grow while it is read. Memory stays bounded whatever the file holds
+                $content .= $chunk;
+                if (strlen($content) > self::MAX_FILE_SIZE) {
+                    throw new Exception\FileNotReadableException("File too large: $path");
                 }
             }
 
-            // Reading also stops when it fails. lines() tells whether it reached the end of the file:
-            // a partly read file must not pass as complete
-            if (!$lines->getReturn()) {
+            if (!feof($handle)) {
                 throw new Exception\FileNotReadableException("Could not read file: $path");
             }
+
+            return $content;
         } finally {
             @fclose($handle);
         }
-
-        return $result;
     }
 
     /**
@@ -256,71 +290,25 @@ final class EnvLoader
     }
 
     /**
-     * The lines of a file, numbered from 1. LF, CRLF and a single CR each end a line.
+     * The lines of the content, numbered from 1. LF, CRLF and a single CR each end a line; the last line needs
+     * none. Cut one by one instead of into an array, so empty lines count for the line number but cost no memory.
      *
-     * Reads in chunks with fread(): unlike fgets(), it tells a failed read (false) from one without data (''),
-     * and feof() then tells a stream that has stopped from the end of the file. Chunks are cut at their line
-     * endings without an array of lines, so empty lines count for the line number but cost no memory.
-     *
-     * Ends early if a read fails or brings no data before the end of the file: a line is never handed out
-     * cut off, nor joined across such a read. The @ does not keep an error handler of the application from
-     * being called; what it throws reaches the caller of parse() (README, FileNotReadableException).
-     *
-     * @param resource $handle
-     *
-     * @return \Generator<int, string, mixed, bool> The lines; returns whether the end of the file was reached,
-     *                                              decided once, where reading stops: the stream may answer
-     *                                              differently when asked later
+     * @return \Generator<int, string>
      */
-    private static function lines($handle): \Generator
+    private static function lines(#[\SensitiveParameter] string $content): \Generator
     {
+        $length = strlen($content);
+        $offset = 0;
         $lineNumber = 0;
 
-        // The beginning of a line whose end has not been read yet; it holds no line ending
-        $carry = '';
-        $afterCr = false;
+        while ($offset < $length) {
+            $end = $offset + strcspn($content, "\r\n", $offset);
 
-        while (true) {
-            $chunk = @fread($handle, self::CHUNK_SIZE);
+            yield ++$lineNumber => substr($content, $offset, $end - $offset);
 
-            if ($chunk === false) {
-                return false;
-            }
-            if ($chunk === '') {
-                break;
-            }
-
-            // A LF after the CR that ended the last chunk belongs to that CR
-            $start = $afterCr && $chunk[0] === "\n" ? 1 : 0;
-            $length = strlen($chunk);
-            $afterCr = $chunk[$length - 1] === "\r";
-
-            while (($end = $start + strcspn($chunk, "\r\n", $start)) < $length) {
-                // The line is completed in place and handed over, not copied: a long line is not held twice
-                $carry .= substr($chunk, $start, $end - $start);
-                $line = $carry;
-                $carry = '';
-                $start = $end + (substr($chunk, $end, 2) === "\r\n" ? 2 : 1);
-
-                yield ++$lineNumber => $line;
-            }
-
-            // Once the next line is handed out, also the last one from $carry, the one before is not held here
-            unset($line);
-            $carry .= substr($chunk, $start);
+            // A CRLF is one line ending; at the end of the content, $end + 1 ends the loop
+            $offset = $end + (substr($content, $end, 2) === "\r\n" ? 2 : 1);
         }
-
-        // No data: the file has ended, or the stream has stopped delivering (a timeout, say)
-        if (!feof($handle)) {
-            return false;
-        }
-
-        // The last line needs no line ending
-        if ($carry !== '') {
-            yield ++$lineNumber => $carry;
-        }
-
-        return true;
     }
 
     /**
