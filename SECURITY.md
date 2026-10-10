@@ -21,7 +21,8 @@ Do not open a public issue. Include the affected version, the PHP version and SA
 
 Outside the reach of the library (README, section Security):
 
-- The path is trusted input: without `localOnly: true`, a URL is opened with its stream wrapper.
+- The path is trusted input: without `localOnly: true`, a URL is opened with its stream wrapper if that wrapper stats
+  it as a regular file.
 - With an `E` in `variables_order`, PHP-FPM and CGI fill `$_ENV` with the request, and `$_ENV` wins over the file.
   `rejectRequestVariables: true` guards the listed names only.
 - `required` checks presence, a string value and, with `requireNonEmpty`, emptiness; not the strength of a secret.

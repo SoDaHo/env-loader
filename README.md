@@ -56,7 +56,7 @@ the file is left to the caller. The content is for `parse()`, not for a shell: `
 | `KEY=#fff`, `KEY=a#b` | `#fff`, `a#b` (no whitespace before `#`) |
 | `KEY="say \"hi\" \\ \n $X"` | `say "hi" \ \n $X`: only `\"` and `\\` are unescaped |
 | `KEY='a \n $X'` | `a \n $X`: literal; cannot contain `'` |
-| `KEY="v" # note`, `KEY="v"#note` | `v`; after a closing quote only spaces, tabs, VT, FF and a comment |
+| `KEY="v" # note`, `KEY="v"#note` | `v`; after the quote: spaces, tabs, VT, FF, a comment; NUL only at the line end |
 | `export KEY=v` | `v`; `export` followed by a space or tab is dropped; `export = 1` is the key `export` |
 | `# comment`, empty line | skipped |
 
@@ -68,8 +68,6 @@ the file is left to the caller. The content is for `parse()`, not for a shell: `
 - **Size:** no file larger than 1 MiB (1 048 576 bytes) is read; counted while reading.
 
 ## Configuration
-
-Options of `load()` (`localOnly` also of `parse()`). All checks run before anything is written to `$_ENV`.
 
 | Option | Type | Default | Refused |
 |--------|------|---------|---------|
@@ -106,7 +104,7 @@ All extend `Sodaho\EnvLoader\Exception\EnvLoaderException` (abstract, extends `\
 | `UnterminatedQuoteException` | a quoted value has no closing quote |
 | `TrailingCharactersException` | something other than a comment follows the closing quote |
 | `InvalidValueException` | a NUL byte in a value; for `format()` also a value that is no string or has a line break |
-| `MissingRequiredKeyException` | a required key is missing, has no string value in `$_ENV`, or is empty |
+| `MissingRequiredKeyException` | a required key is missing, no string in `$_ENV`, or empty with `requireNonEmpty` |
 | `RequestVariableException` | `rejectRequestVariables` and a key the request may have set |
 | `\InvalidArgumentException` | the arguments refused under Configuration; not an `EnvLoaderException` |
 
@@ -120,15 +118,17 @@ All extend `Sodaho\EnvLoader\Exception\EnvLoaderException` (abstract, extends `\
 - Arguments holding values or lines are hidden from stack traces (`#[\SensitiveParameter]`). The backtrace PHP
   prints for a fatal error, such as memory running out, can show the start of a line; with at most 1 MiB read,
   that takes a `memory_limit` of up to about 18 MiB. `zend.exception_ignore_args=1` keeps arguments out of traces.
-- The path is trusted input and appears in messages: without `localOnly`, a URL is opened with its stream wrapper.
+- The path is trusted input and appears in messages. Without `localOnly`, a URL is opened with its stream wrapper
+  if the wrapper stats it as a regular file (`phar://`); others (`data:`, `php://filter`, `http://`) are not found.
   Never build the path from a request. Only regular files are read; a local file is checked again once opened.
 - Under PHP-FPM and CGI with an `E` in `variables_order`, PHP fills `$_ENV` with the request, which then wins over
   the file and counts for `required`. Set `variables_order = "GPCS"`; `rejectRequestVariables` guards the names
   listed above. Names outside the list (such as `SSL_CLIENT_*`) are not checked: keep them out of the file.
-- `required` checks presence, type and emptiness, not whether a secret is long enough.
+- `required` checks presence, type and (with `requireNonEmpty`) emptiness, not whether a secret is long enough.
 - In a long-running worker `$_ENV` lives as long as the worker: load once when it starts, from a fixed path. A second
   `load()` does not remove the keys of the first. For values per tenant or request, use `parse()`.
 - A replaced plain file wrapper (`stream_wrapper_unregister('file')`) runs under the error handler of the library.
+  For a plain path it is opened with the mode `rbn` and must report a regular file through `stream_stat()`.
   If it suspends a fiber while reading (not supported), a warning raised meanwhile goes to that handler and can become
   the previous of the exception; handlers installed meanwhile stay, the one of the library under the first of them.
 - Report vulnerabilities as described in [SECURITY.md](https://github.com/SoDaHo/env-loader/blob/main/SECURITY.md).

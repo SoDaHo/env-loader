@@ -58,7 +58,7 @@ class MemoryTest extends EnvLoaderTestCase
         $this->assertIsInt($parse);
         $this->assertIsInt($load);
         // load() holds the values and fills $_ENV, so it needs more than parse() (2.0.1: about 1.6 times as much, 1.8
-        // with every key required); a pair of source and value kept for every key on top needs four times as much
+        // with every key required); checked is more than parse() and less than twice as much
         $this->assertGreaterThan($parse, $load);
         $this->assertLessThan(2 * $parse, $load);
     }

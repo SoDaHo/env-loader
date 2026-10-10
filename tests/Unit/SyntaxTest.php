@@ -181,7 +181,7 @@ class SyntaxTest extends EnvLoaderTestCase
         $value = str_repeat('a', 200_000);
 
         return [
-            // Larger than the PCRE limits (8 KB with JIT, 50 KB without) at which a regex reports an unterminated quote
+            // Larger than the sizes (about 8 KB with JIT, 50 KB without) at which a regex hits a PCRE limit
             'double-quoted' => ['TEST_BIG="' . $value . '" # comment', ['TEST_BIG' => $value]],
             'double-quoted with escapes' => [
                 'TEST_BIG="' . str_repeat('\\"x\\\\\\n', 50_000) . '"',
