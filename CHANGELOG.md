@@ -6,6 +6,7 @@
 - Development (not part of the package): CI looks up the locked development tools in the security advisories (`composer audit`; an unreachable Packagist only warns), and a job fails after ten minutes instead of hanging.
 
 ### Fixed
+- The class documentation of `FileNotFoundException`, `FileNotReadableException`, `InvalidValueException` and `MissingRequiredKeyException` names every case that throws them (it described one each).
 - README: `export` is followed by a space or a tab, as in a shell; after another whitespace (vertical tab, form feed) it is part of the key, which is invalid.
 
 ## [2.0.1] - 2026-10-09
