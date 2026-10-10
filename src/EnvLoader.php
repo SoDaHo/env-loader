@@ -733,8 +733,8 @@ final class EnvLoader
      * Only unescapes \\ and \" — other sequences like \n are preserved
      * literally to prevent data corruption with Windows paths.
      *
-     * Scans linearly instead of using a regex: PCRE limits made large
-     * values fail as "unterminated".
+     * Scans linearly instead of using a regex: PCRE limits (8 KB with JIT,
+     * 50 KB without) would make large values fail as "unterminated".
      *
      * @throws Exception\UnterminatedQuoteException
      * @throws Exception\TrailingCharactersException
