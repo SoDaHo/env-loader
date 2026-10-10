@@ -276,8 +276,16 @@ class ParseErrorTest extends EnvLoaderTestCase
 
     public function testExceptionsForTheContentOfTheFileAreSiblings(): void
     {
-        // Each can be caught on its own; all of them as EnvLoaderException
-        foreach ([InvalidLineException::class, InvalidKeyException::class, UnterminatedQuoteException::class, TrailingCharactersException::class] as $class) {
+        // Each can be caught on its own; all of them as EnvLoaderException. InvalidValueException is one of them since
+        // a NUL byte in a value throws it
+        $classes = [
+            InvalidLineException::class,
+            InvalidKeyException::class,
+            UnterminatedQuoteException::class,
+            TrailingCharactersException::class,
+            InvalidValueException::class,
+        ];
+        foreach ($classes as $class) {
             $this->assertSame(EnvLoaderException::class, get_parent_class($class));
         }
     }
