@@ -362,41 +362,24 @@ final class EnvLoader
             throw new Exception\FileNotFoundException("Not a local file: $path");
         }
 
-        // A URL is read as in 2.0: the warnings are suppressed with @, and an error handler that throws anyway
-        // throws from here, as an exception of the wrapper does. No handler of this library may stand over the code
-        // of a wrapper: written in PHP, it can suspend a fiber, and the error handler belongs to the whole process -
-        // one that another fiber installed meanwhile would be removed when this one is restored
-        if ($streamUrl) {
-            return self::readFile($path, true);
-        }
-
-        // A local file runs no code of the application (unless it replaced the plain file wrapper). Its warnings
-        // (open_basedir, a failed open or read) do not reach an error handler of the application: a handler that
-        // throws even for suppressed warnings would replace the exception of this library with its own
-        set_error_handler(static fn (): bool => true);
-
-        try {
-            return self::readFile($path, false);
-        } finally {
-            restore_error_handler();
-        }
+        return self::readFile($path, !$streamUrl);
     }
 
     /**
-     * Opens, reads and closes the file. Every warning is suppressed with @: a URL reaches here without a handler of
-     * this library (read()).
+     * Opens, reads and closes the file. Every call that may warn goes through quietly(): for a local file its warning
+     * does not reach an error handler of the application, for a URL it is suppressed with @ alone, as in 2.0.
      *
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
      */
-    private static function readFile(string $path, bool $streamUrl): string
+    private static function readFile(string $path, bool $local): string
     {
-        $handle = self::open($path, $streamUrl);
+        $handle = self::open($path, $local);
 
         try {
-            return self::contents($handle, $path, $streamUrl);
+            return self::contents($handle, $path, $local);
         } finally {
-            @fclose($handle);
+            self::quietly(static fn (): bool => @fclose($handle), $local);
         }
     }
 
@@ -409,11 +392,11 @@ final class EnvLoader
      *
      * @return resource
      */
-    private static function open(string $path, bool $streamUrl)
+    private static function open(string $path, bool $local)
     {
         // Also false outside open_basedir
-        if (!@file_exists($path)) {
-            throw new Exception\FileNotFoundException("File not found: $path");
+        if (!self::quietly(static fn (): bool => @file_exists($path), $local, $warning)) {
+            throw new Exception\FileNotFoundException("File not found: $path", previous: $warning);
         }
 
         // Only a regular file is opened, as in 2.0: opening a device or a FIFO can have effects of its own. A local
@@ -424,10 +407,10 @@ final class EnvLoader
 
         // A local file is opened without blocking ("n", O_NONBLOCK of the plain file wrapper): a FIFO that replaced
         // it after the look at its name would wait for a writer before it could be rejected
-        $handle = @fopen($path, $streamUrl ? 'rb' : 'rbn');
+        $handle = self::quietly(static fn () => @fopen($path, $local ? 'rbn' : 'rb'), $local, $warning);
 
         if ($handle === false) {
-            throw new Exception\FileNotReadableException("Could not read file: $path");
+            throw new Exception\FileNotReadableException("Could not read file: $path", previous: $warning);
         }
 
         return $handle;
@@ -441,10 +424,10 @@ final class EnvLoader
      * @throws Exception\FileNotFoundException
      * @throws Exception\FileNotReadableException
      */
-    private static function contents($handle, string $path, bool $streamUrl): string
+    private static function contents($handle, string $path, bool $local): string
     {
         // Checked on what was opened, not only on the name: the name may lead elsewhere by now (a FIFO, a device)
-        if (!$streamUrl && !self::isRegularFile($handle)) {
+        if ($local && !self::isRegularFile($handle)) {
             throw new Exception\FileNotFoundException("Not a file: $path");
         }
 
@@ -452,10 +435,10 @@ final class EnvLoader
         // of the file from a stream that has stopped delivering (a timeout, say)
         $content = '';
         while (true) {
-            $chunk = @fread($handle, self::CHUNK_SIZE);
+            $chunk = self::quietly(static fn () => @fread($handle, self::CHUNK_SIZE), $local, $warning);
 
             if ($chunk === false) {
-                throw new Exception\FileNotReadableException("Could not read file: $path");
+                throw new Exception\FileNotReadableException("Could not read file: $path", previous: $warning);
             }
             if ($chunk === '') {
                 break;
@@ -470,10 +453,74 @@ final class EnvLoader
         }
 
         if (!feof($handle)) {
-            throw new Exception\FileNotReadableException("Could not read file: $path");
+            throw new Exception\FileNotReadableException("Could not read file: $path", previous: $warning);
         }
 
         return $content;
+    }
+
+    /**
+     * Calls one function of the file system and returns its result.
+     *
+     * For a local file, a handler of this library takes the warning of the call, so that it does not reach an error
+     * handler of the application, which might throw even for a warning suppressed with @ and so replace the exception
+     * of this library. The handler keeps the warning as an ErrorException (the previous of the exception that
+     * follows) and returns false, so that error_get_last() tells it as in 2.0; it stands over this one call only. For
+     * a URL the call runs with @ alone, as in 2.0: a stream wrapper of the application may suspend a fiber, and the
+     * error handler belongs to the whole process. (A replaced plain file wrapper runs under the handler: README.)
+     *
+     * @template T
+     *
+     * @param \Closure(): T $call
+     *
+     * @param-out \ErrorException|null $warning
+     *
+     * @return T
+     */
+    private static function quietly(\Closure $call, bool $local, ?\ErrorException &$warning = null): mixed
+    {
+        $warning = null;
+        if (!$local) {
+            return $call();
+        }
+
+        $handler = static function (int $level, string $message, string $file, int $line) use (&$warning): bool {
+            $warning = new \ErrorException($message, 0, $level, $file, $line);
+
+            return false;
+        };
+        set_error_handler($handler);
+
+        try {
+            return $call();
+        } finally {
+            self::removeErrorHandler($handler);
+        }
+    }
+
+    /**
+     * Takes the handler of quietly() off again. Usually it is on top. Where a replaced plain file wrapper suspended
+     * a fiber during the call and another fiber installed a handler meanwhile, that one is on top: it is taken off,
+     * the one of this library under it as well, and it is put back, so the application keeps its handler (with all
+     * error levels, as the ones it was installed for are not known).
+     */
+    private static function removeErrorHandler(\Closure $handler): void
+    {
+        $top = set_error_handler(null);
+        restore_error_handler();
+        if ($top === $handler) {
+            restore_error_handler();
+
+            return;
+        }
+
+        restore_error_handler();
+        $below = set_error_handler(null);
+        restore_error_handler();
+        if ($below === $handler) {
+            restore_error_handler();
+        }
+        set_error_handler($top);
     }
 
     /**

@@ -43,12 +43,15 @@ class ErrorHandlerTest extends EnvLoaderTestCase
         };
         set_error_handler($handler);
 
+        error_clear_last();
+        $warning = null;
         try {
             try {
                 EnvLoader::parse($path);
                 $result = 'read';
             } catch (FileNotReadableException $e) {
                 $result = $e->getMessage();
+                $warning = $e->getPrevious();
             }
 
             // The handler of the application is in place again
@@ -61,6 +64,11 @@ class ErrorHandlerTest extends EnvLoaderTestCase
 
         $this->assertSame("Could not read file: $path", $result);
         $this->assertSame($handler, $current);
+        // What PHP reported is kept: as the previous of the exception, and for error_get_last() as in 2.0
+        // (a warning for fopen(), a notice for fread())
+        $this->assertInstanceOf(\ErrorException::class, $warning);
+        $this->assertContains($warning->getSeverity(), [E_WARNING, E_NOTICE]);
+        $this->assertSame($warning->getMessage(), error_get_last()['message'] ?? null);
     }
 
     public function testThrowingErrorHandlerDoesNotSeeTheWarningsOutsideOpenBasedir(): void
@@ -73,12 +81,20 @@ class ErrorHandlerTest extends EnvLoaderTestCase
             . '    throw new ErrorException($message, 0, $level);'
             . '});'
             . 'try { echo json_encode(Sodaho\EnvLoader\EnvLoader::parse($argv[2])); }'
-            . 'catch (Throwable $e) { echo $e::class; }';
+            . 'catch (Throwable $e) {'
+            . '    echo json_encode([$e::class, $e->getPrevious()?->getMessage(), error_get_last()["message"] ?? null]);'
+            . '}';
         $allowed = $root . '/src/' . PATH_SEPARATOR . $root . '/vendor/';
 
         $output = $this->runInChildProcess($script, $path, ['-d', 'open_basedir=' . $allowed]);
+        $result = json_decode($output, true);
 
-        $this->assertSame(FileNotFoundException::class, $output);
+        $this->assertIsArray($result, $output);
+        [$class, $previous, $last] = $result;
+        $this->assertSame(FileNotFoundException::class, $class);
+        $this->assertIsString($previous);
+        $this->assertStringContainsString('open_basedir restriction in effect', $previous);
+        $this->assertSame($previous, $last);
     }
 
     public function testThrowingErrorHandlerThrowsFromAStreamWrapperAsIn20(): void
@@ -116,6 +132,99 @@ class ErrorHandlerTest extends EnvLoaderTestCase
         } finally {
             stream_wrapper_unregister($scheme);
         }
+    }
+
+    public function testReplacedPlainFileWrapperThatSuspendsAFiberKeepsTheHandlerInstalledMeanwhile(): void
+    {
+        // A replaced plain file wrapper runs while the handler of the library stands over a call: a warning of the
+        // application raised while the fiber waits goes to that handler (README). A handler the application installs
+        // meanwhile is still in place when parse() has returned
+        class_exists(EnvLoader::class);
+        class_exists(SwappedFileStream::class);
+        SwappedFileStream::$openedType = 0o100000;
+        SwappedFileStream::$suspends = true;
+        $seen = [];
+        $first = static function (int $level, string $message) use (&$seen): bool {
+            $seen[] = "first: $message";
+
+            return true;
+        };
+        $second = static function (int $level, string $message) use (&$seen): bool {
+            $seen[] = "second: $message";
+
+            return true;
+        };
+        set_error_handler($first);
+        $path = $this->tempDir . '/.env';
+        $replaced = false;
+        $values = null;
+        $current = null;
+
+        try {
+            $replaced = stream_wrapper_unregister('file') && stream_wrapper_register('file', SwappedFileStream::class);
+            $fiber = new \Fiber(static fn (): array => EnvLoader::parse($path));
+            $fiber->start();
+            trigger_error('while suspended', E_USER_WARNING);
+            set_error_handler($second);
+
+            $fiber->resume();
+            $values = $fiber->getReturn();
+            $current = set_error_handler(null);
+            restore_error_handler();
+            trigger_error('after', E_USER_WARNING);
+        } finally {
+            stream_wrapper_restore('file');
+            SwappedFileStream::$suspends = false;
+            SwappedFileStream::$openedType = 0o010000;
+            restore_error_handler();
+            restore_error_handler();
+        }
+
+        $this->assertTrue($replaced);
+        $this->assertSame(['TEST_KEY' => 'value'], $values);
+        $this->assertSame($second, $current);
+        $this->assertSame(['second: after'], $seen);
+    }
+
+    public function testReplacedPlainFileWrapperThatSuspendsAFiberLeavesItsHandlerUnderTwoInstalledMeanwhile(): void
+    {
+        // The limit (README): with two handlers installed meanwhile, the second stays on top, but the handler of the
+        // library stays under the first
+        class_exists(EnvLoader::class);
+        class_exists(SwappedFileStream::class);
+        SwappedFileStream::$openedType = 0o100000;
+        SwappedFileStream::$suspends = true;
+        $first = static fn (): bool => true;
+        $second = static fn (): bool => true;
+        $third = static fn (): bool => true;
+        set_error_handler($first);
+        $path = $this->tempDir . '/.env';
+        $stack = [];
+
+        try {
+            stream_wrapper_unregister('file');
+            stream_wrapper_register('file', SwappedFileStream::class);
+            $fiber = new \Fiber(static fn (): array => EnvLoader::parse($path));
+            $fiber->start();
+            set_error_handler($second);
+            set_error_handler($third);
+            $fiber->resume();
+        } finally {
+            stream_wrapper_restore('file');
+            SwappedFileStream::$suspends = false;
+            SwappedFileStream::$openedType = 0o010000;
+            // The handlers from the top down, each taken off
+            for ($i = 0; $i < 4; $i++) {
+                $stack[] = set_error_handler(null);
+                restore_error_handler();
+                restore_error_handler();
+            }
+        }
+
+        $this->assertSame($third, $stack[0]);
+        $this->assertSame($second, $stack[1]);
+        $this->assertNotContains($stack[2], [$first, $second, $third]);
+        $this->assertSame($first, $stack[3]);
     }
 
     public function testFiberSuspendedInAStreamWrapperLeavesTheErrorHandlersAlone(): void
