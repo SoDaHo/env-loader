@@ -21,6 +21,9 @@ abstract class EnvLoaderTestCase extends TestCase
     /** @var array<string> */
     protected array $processVariables = [];
 
+    // The effective user to return to after unreadableFile() dropped privileges, null where none were dropped
+    private ?int $privilegedUser = null;
+
     /**
      * A directory of its own for the files of the test, and a copy of $_ENV to restore.
      */
@@ -39,6 +42,7 @@ abstract class EnvLoaderTestCase extends TestCase
      */
     protected function tearDown(): void
     {
+        $this->restorePrivileges();
         foreach (scandir($this->tempDir) ?: [] as $file) {
             if ($file !== '.' && $file !== '..') {
                 unlink($this->tempDir . '/' . $file);
@@ -67,6 +71,54 @@ abstract class EnvLoaderTestCase extends TestCase
     {
         if (file_put_contents($path, $content, $flags) !== strlen($content)) {
             throw new \RuntimeException("Could not write $path");
+        }
+    }
+
+    /**
+     * A file this process cannot open: mode 000, and where it could open it anyway (root in CI containers), privileges
+     * are dropped to "nobody" until restorePrivileges() or the end of the test. Opening it fails with a warning.
+     *
+     * @param list<class-string> $classes Loaded before: "nobody" may not be allowed to read the source files
+     */
+    protected function unreadableFile(array $classes): string
+    {
+        $path = $this->createEnvFile('TEST_KEY=value');
+        chmod($path, 0o000);
+        if (@file_get_contents($path) === false) {
+            return $path;
+        }
+
+        foreach ($classes as $class) {
+            class_exists($class);
+        }
+        chmod($this->tempDir, 0o755);
+        $nobody = function_exists('posix_getpwnam') ? posix_getpwnam('nobody') : false;
+        if ($nobody === false) {
+            $this->markTestSkipped('File is readable despite chmod 000, and privileges cannot be dropped');
+        }
+
+        $user = posix_geteuid();
+        if (!posix_seteuid($nobody['uid'])) {
+            $this->markTestSkipped('Cannot drop privileges');
+        }
+        $this->privilegedUser = $user;
+        if (!is_file($path)) {
+            $this->restorePrivileges();
+            $this->markTestSkipped('Cannot see the file as an unprivileged user');
+        }
+
+        return $path;
+    }
+
+    /**
+     * Returns to the user unreadableFile() dropped privileges from.
+     */
+    protected function restorePrivileges(): void
+    {
+        if ($this->privilegedUser !== null) {
+            $restored = posix_seteuid($this->privilegedUser);
+            $this->privilegedUser = null;
+            $this->assertTrue($restored, 'Privileges could not be restored');
         }
     }
 

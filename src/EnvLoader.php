@@ -442,14 +442,14 @@ final class EnvLoader
             throw new Exception\FileNotFoundException("File not found: $path");
         }
 
-        // A URL is checked with the stat of its wrapper before it is opened, as in 2.0: not every wrapper can stat
-        // an open stream. A local file is checked after opening, on the handle (contents())
-        if ($streamUrl && !is_file($path)) {
+        // Only a regular file is opened, as in 2.0: opening a device or a FIFO can have effects of its own. A local
+        // file is checked once more after opening, on the handle (contents()): its name may lead elsewhere by then
+        if (!is_file($path)) {
             throw new Exception\FileNotFoundException("Not a file: $path");
         }
 
-        // A local file is opened without blocking ("n", O_NONBLOCK of the plain file wrapper): a FIFO would wait for
-        // a writer before it could be rejected
+        // A local file is opened without blocking ("n", O_NONBLOCK of the plain file wrapper): a FIFO that replaced
+        // it after the look at its name would wait for a writer before it could be rejected
         $handle = @fopen($path, $streamUrl ? 'rb' : 'rbn');
 
         if ($handle === false) {
@@ -469,7 +469,7 @@ final class EnvLoader
      */
     private static function contents($handle, string $path, bool $streamUrl): string
     {
-        // Checked on what was opened, not on the name: by now the name may lead elsewhere (a FIFO, a device)
+        // Checked on what was opened, not only on the name: the name may lead elsewhere by now (a FIFO, a device)
         if (!$streamUrl && !self::isRegularFile($handle)) {
             throw new Exception\FileNotFoundException("Not a file: $path");
         }

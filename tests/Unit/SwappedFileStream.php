@@ -6,7 +6,8 @@ namespace Sodaho\EnvLoader\Tests\Unit;
 
 /**
  * Stands in for the plain file wrapper ("file") for a file that is replaced between a look at its name and the
- * opening: the name is a regular file, what is opened is of the type in $openedType (a FIFO, say).
+ * opening: the name is a regular file, what is opened is of the type in $openedType (a FIFO, say). Opened without
+ * "n" (O_NONBLOCK) a FIFO would wait for a writer: this stand-in refuses to open instead of hanging.
  */
 class SwappedFileStream
 {
@@ -18,9 +19,9 @@ class SwappedFileStream
 
     private bool $read = false;
 
-    public function stream_open(): bool
+    public function stream_open(string $path, string $mode): bool
     {
-        return true;
+        return str_contains($mode, 'n');
     }
 
     /**

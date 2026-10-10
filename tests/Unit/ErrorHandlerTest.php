@@ -22,8 +22,8 @@ class ErrorHandlerTest extends EnvLoaderTestCase
     public static function localWarningProvider(): array
     {
         return [
-            // fopen() warns that a socket cannot be opened
-            'socket that cannot be opened' => ['socket'],
+            // fopen() warns that the file cannot be opened
+            'file that cannot be opened' => ['unreadable'],
             // On Linux this file can be opened, and fread() warns of an I/O error
             'read that fails' => ['/proc/self/mem'],
         ];
@@ -32,13 +32,8 @@ class ErrorHandlerTest extends EnvLoaderTestCase
     #[DataProvider('localWarningProvider')]
     public function testThrowingErrorHandlerDoesNotSeeTheWarningsOfALocalFile(string $path): void
     {
-        $server = null;
-        if ($path === 'socket') {
-            $path = $this->tempDir . '/env.sock';
-            $server = @stream_socket_server("unix://$path");
-            if ($server === false) {
-                $this->markTestSkipped('Cannot create a Unix socket here');
-            }
+        if ($path === 'unreadable') {
+            $path = $this->unreadableFile([EnvLoader::class, FileNotReadableException::class]);
         } elseif (!@is_file($path) || !is_readable($path)) {
             $this->markTestSkipped("No $path to read here");
         }
@@ -51,20 +46,21 @@ class ErrorHandlerTest extends EnvLoaderTestCase
         try {
             try {
                 EnvLoader::parse($path);
-                $this->fail('Expected FileNotReadableException');
+                $result = 'read';
             } catch (FileNotReadableException $e) {
-                $this->assertSame("Could not read file: $path", $e->getMessage());
+                $result = $e->getMessage();
             }
 
             // The handler of the application is in place again
-            $this->assertSame($handler, set_error_handler(null));
+            $current = set_error_handler(null);
             restore_error_handler();
         } finally {
             restore_error_handler();
-            if ($server !== null) {
-                fclose($server);
-            }
+            $this->restorePrivileges();
         }
+
+        $this->assertSame("Could not read file: $path", $result);
+        $this->assertSame($handler, $current);
     }
 
     public function testThrowingErrorHandlerDoesNotSeeTheWarningsOutsideOpenBasedir(): void

@@ -51,8 +51,7 @@ class FileTest extends EnvLoaderTestCase
     #[DataProvider('noRegularFileProvider')]
     public function testPathThatIsNoRegularFileThrowsFileNotFoundException(string $name): void
     {
-        // Only a regular file is read: a FIFO is opened without blocking and rejected, a device has no end. Checked
-        // after opening, on the handle: before it, the name could still be replaced
+        // Only a regular file is read: a FIFO would block, a device has no end. Neither is opened
         $path = $name === 'fifo' ? $this->tempDir . '/fifo' : $name;
         if ($name === 'fifo' && !(function_exists('posix_mkfifo') && posix_mkfifo($path, 0o600))) {
             $this->markTestSkipped('Cannot create a FIFO here');
@@ -100,9 +99,8 @@ class FileTest extends EnvLoaderTestCase
         $this->assertSame("Not a file: $path", $result);
     }
 
-    public function testSocketCannotBeRead(): void
+    public function testSocketIsNoFile(): void
     {
-        // A socket cannot be opened as a file at all
         $path = $this->tempDir . '/env.sock';
         $server = @stream_socket_server("unix://$path");
         if ($server === false) {
@@ -111,9 +109,9 @@ class FileTest extends EnvLoaderTestCase
 
         try {
             EnvLoader::parse($path);
-            $this->fail('Expected FileNotReadableException');
-        } catch (FileNotReadableException $e) {
-            $this->assertSame("Could not read file: $path", $e->getMessage());
+            $this->fail('Expected FileNotFoundException');
+        } catch (FileNotFoundException $e) {
+            $this->assertSame("Not a file: $path", $e->getMessage());
         } finally {
             fclose($server);
         }
@@ -131,42 +129,20 @@ class FileTest extends EnvLoaderTestCase
 
     public function testThrowsFileNotReadableException(): void
     {
-        $path = $this->createEnvFile('TEST_KEY=value');
-        chmod($path, 0o000);
-
-        // A privileged user (root in CI containers) reads the file anyway: read it as "nobody" instead.
+        // A privileged user (root in CI containers) reads the file anyway: it is read as "nobody" instead.
         // Either way it is the opening of the file that fails, and the message is the same
-        $privileged = @file_get_contents($path) !== false;
-        $user = null;
+        $path = $this->unreadableFile([EnvLoader::class, FileNotReadableException::class]);
 
         try {
-            if ($privileged) {
-                // Load the classes first: "nobody" may not be allowed to read the source files
-                class_exists(EnvLoader::class);
-                class_exists(FileNotReadableException::class);
-
-                chmod($this->tempDir, 0o755);
-                $nobody = function_exists('posix_getpwnam') ? posix_getpwnam('nobody') : false;
-                if ($nobody === false) {
-                    $this->markTestSkipped('File is readable despite chmod 000, and privileges cannot be dropped');
-                }
-
-                $user = posix_geteuid();
-                if (!posix_seteuid($nobody['uid']) || !is_file($path)) {
-                    $this->markTestSkipped('Cannot read the file as an unprivileged user');
-                }
-            }
-
             EnvLoader::load($path);
-            $this->fail('Expected FileNotReadableException');
+            $result = 'read';
         } catch (FileNotReadableException $e) {
-            $this->assertSame("Could not read file: $path", $e->getMessage());
+            $result = $e->getMessage();
         } finally {
-            if ($user !== null) {
-                $this->assertTrue(posix_seteuid($user), 'Privileges could not be restored');
-            }
-            chmod($path, 0o644); // Restore for cleanup
+            $this->restorePrivileges();
         }
+
+        $this->assertSame("Could not read file: $path", $result);
     }
 
     public function testOpeningDecidesWhetherAFileCanBeRead(): void
