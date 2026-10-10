@@ -208,7 +208,7 @@ try {
 | `RequestVariableException` | `rejectRequestVariables`: a key named like a request variable would take its value from `$_ENV` while PHP fills `$_ENV` with the request |
 | `InvalidValueException` | `parse()`, `load()`: a value contains a NUL byte. `format()`: value is not a string, or contains a line break or NUL byte |
 
-The warnings PHP raises while the file is opened and read (`open_basedir`, a failed open or read, also those of a stream wrapper) do not reach an error handler of yours: every failure is one of these exceptions, also where your handler throws even for warnings suppressed with `@`. An exception that an allowed stream wrapper throws itself reaches you as it is.
+The warnings PHP raises while a local file is opened and read (`open_basedir`, a failed open or read) do not reach an error handler of yours: a failure there is one of these exceptions, also where your handler throws even for warnings suppressed with `@`. A URL is read as in 2.0: the warnings of its stream wrapper are suppressed with `@`, so a handler that throws even for those throws from `parse()`, and an exception the wrapper throws, also from `stream_close()`, reaches you as it is. No error handler of the library stands over the code of a wrapper, which may suspend a fiber.
 
 An entry of `required` that has no string form (an array, an object without `__toString()`) is a mistake in the code, not in the file: it throws `\InvalidArgumentException`, which is no `EnvLoaderException`.
 

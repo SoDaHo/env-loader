@@ -19,7 +19,7 @@ SAPI (CLI, PHP-FPM, CGI, …), `variables_order` and, if you have one, a minimal
 
 ## Scope
 
-The library parses a file into strings and writes them to `$_ENV`: no variable expansion, no code is run, no value
+The library parses a file into strings and writes them to `$_ENV`: no variable expansion, nothing in the file is run, no value
 appears in an exception message. These are outside its reach by design, and documented in the README:
 
 - **The path is trusted input.** A URL is opened with its stream wrapper, as in 2.0; `localOnly: true` reads a local

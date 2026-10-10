@@ -10,43 +10,38 @@ use Sodaho\EnvLoader\Exception\FileNotFoundException;
 use Sodaho\EnvLoader\Exception\FileNotReadableException;
 
 /**
- * An error handler of the application that throws, even for warnings suppressed with @, never replaces what
- * parse() returns or throws: the warnings of opening and reading do not reach it, and it is in place again after.
+ * Error handlers of the application. For a local file, one that throws even for warnings suppressed with @ never
+ * replaces what parse() returns or throws: the warnings of opening and reading do not reach it. A stream wrapper is
+ * read as in 2.0, with @ and no handler of the library, so a wrapper that suspends a fiber leaves the handlers alone.
  */
 class ErrorHandlerTest extends EnvLoaderTestCase
 {
     /**
-     * @return array<string, array{string, string}> The path, and the values as JSON or the exception
+     * @return array<string, array{string}>
      */
-    public static function warningProvider(): array
+    public static function localWarningProvider(): array
     {
-        $unreadable = FileNotReadableException::class . ': Could not read file: {path}';
-        $line = rawurlencode("TEST_KEY=value\n");
-
         return [
             // fopen() warns that a socket cannot be opened
-            'socket that cannot be opened' => ['socket', $unreadable],
-            // The stream warns when a read fails, and when it is closed
-            'read that fails' => ["{scheme}://fails/$line", $unreadable],
-            'stream that warns when it is closed' => ["{scheme}://ends/$line", '{"TEST_KEY":"value"}'],
+            'socket that cannot be opened' => ['socket'],
+            // On Linux this file can be opened, and fread() warns of an I/O error
+            'read that fails' => ['/proc/self/mem'],
         ];
     }
 
-    #[DataProvider('warningProvider')]
-    public function testThrowingErrorHandlerDoesNotReplaceTheResult(string $path, string $expected): void
+    #[DataProvider('localWarningProvider')]
+    public function testThrowingErrorHandlerDoesNotSeeTheWarningsOfALocalFile(string $path): void
     {
-        $scheme = 'failing-read-' . getmypid();
-        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
         $server = null;
         if ($path === 'socket') {
             $path = $this->tempDir . '/env.sock';
             $server = @stream_socket_server("unix://$path");
             if ($server === false) {
-                stream_wrapper_unregister($scheme);
                 $this->markTestSkipped('Cannot create a Unix socket here');
             }
+        } elseif (!@is_file($path) || !is_readable($path)) {
+            $this->markTestSkipped("No $path to read here");
         }
-        $path = str_replace('{scheme}', $scheme, $path);
 
         $handler = static function (int $level, string $message): never {
             throw new \ErrorException($message, 0, $level);
@@ -55,9 +50,10 @@ class ErrorHandlerTest extends EnvLoaderTestCase
 
         try {
             try {
-                $result = (string) json_encode(EnvLoader::parse($path));
+                EnvLoader::parse($path);
+                $this->fail('Expected FileNotReadableException');
             } catch (FileNotReadableException $e) {
-                $result = $e::class . ': ' . $e->getMessage();
+                $this->assertSame("Could not read file: $path", $e->getMessage());
             }
 
             // The handler of the application is in place again
@@ -65,16 +61,13 @@ class ErrorHandlerTest extends EnvLoaderTestCase
             restore_error_handler();
         } finally {
             restore_error_handler();
-            stream_wrapper_unregister($scheme);
             if ($server !== null) {
                 fclose($server);
             }
         }
-
-        $this->assertSame(str_replace('{path}', $path, $expected), $result);
     }
 
-    public function testThrowingErrorHandlerDoesNotReplaceTheExceptionOutsideOpenBasedir(): void
+    public function testThrowingErrorHandlerDoesNotSeeTheWarningsOutsideOpenBasedir(): void
     {
         // file_exists() warns about open_basedir; open_basedir cannot be lifted again, hence a child process
         $path = $this->createEnvFile('TEST_KEY=value');
@@ -90,5 +83,86 @@ class ErrorHandlerTest extends EnvLoaderTestCase
         $output = $this->runInChildProcess($script, $path, ['-d', 'open_basedir=' . $allowed]);
 
         $this->assertSame(FileNotFoundException::class, $output);
+    }
+
+    public function testThrowingErrorHandlerThrowsFromAStreamWrapperAsIn20(): void
+    {
+        // The read fails with a warning, and closing the stream warns as well: the exception of the handler for the
+        // second replaces the first, which stays as its previous
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        set_error_handler(static function (int $level, string $message): never {
+            throw new \ErrorException($message, 0, $level);
+        });
+
+        try {
+            EnvLoader::parse("$scheme://fails/" . rawurlencode("TEST_KEY=value\n"));
+            $this->fail('Expected ErrorException');
+        } catch (\ErrorException $e) {
+            $this->assertSame('Close failed', $e->getMessage());
+            $this->assertSame('Read failed', $e->getPrevious()?->getMessage());
+        } finally {
+            restore_error_handler();
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
+    public function testExceptionOfAStreamWrapperReachesTheCaller(): void
+    {
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+
+        try {
+            EnvLoader::parse("$scheme://throws/" . rawurlencode("TEST_KEY=value\n"));
+            $this->fail('Expected RuntimeException');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Close failed', $e->getMessage());
+        } finally {
+            stream_wrapper_unregister($scheme);
+        }
+    }
+
+    public function testFiberSuspendedInAStreamWrapperLeavesTheErrorHandlersAlone(): void
+    {
+        // While parse() waits in a suspended fiber, the application goes on: its warnings reach its handler, and a
+        // handler it installs meanwhile stays installed when parse() has returned. (The fiber is suspended inside an
+        // expression with @, which PHP does not undo for the others: error_reporting() says "suppressed" meanwhile.)
+        $scheme = 'failing-read-' . getmypid();
+        $this->assertTrue(stream_wrapper_register($scheme, FailingReadStream::class));
+        $seen = [];
+        $first = static function (int $level, string $message) use (&$seen): bool {
+            $seen[] = "first: $message";
+
+            return true;
+        };
+        $second = static function (int $level, string $message) use (&$seen): bool {
+            $seen[] = "second: $message";
+
+            return true;
+        };
+        set_error_handler($first);
+
+        try {
+            $path = "$scheme://suspends/" . rawurlencode("TEST_KEY=value\n");
+            $fiber = new \Fiber(static fn (): array => EnvLoader::parse($path));
+            $fiber->start();
+            trigger_error('while suspended', E_USER_WARNING);
+            set_error_handler($second);
+
+            $fiber->resume();
+            trigger_error('after', E_USER_WARNING);
+
+            $this->assertTrue($fiber->isTerminated());
+            $this->assertSame(['TEST_KEY' => 'value'], $fiber->getReturn());
+            $this->assertSame($second, set_error_handler(null));
+            restore_error_handler();
+        } finally {
+            restore_error_handler();
+            restore_error_handler();
+            stream_wrapper_unregister($scheme);
+        }
+
+        // The warning of closing the stream, suppressed with @, reaches the handler as in 2.0
+        $this->assertSame(['first: while suspended', 'second: Close failed', 'second: after'], $seen);
     }
 }

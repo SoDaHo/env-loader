@@ -20,6 +20,8 @@ namespace Sodaho\EnvLoader\Tests\Unit;
  *             can be opened and read.
  * - "large":  the path is a number: the file is that many bytes of "#", delivered in reads of up to 8192 bytes,
  *             then it ends. The stream tells no size: only counting what is read finds out.
+ * - "suspends": as "ends", but the first read suspends the fiber it runs in, as a wrapper on an event loop does.
+ * - "throws": as "ends", but closing the stream throws instead of warning.
  *
  * "scheme://env" stands for "fails" after one whole line.
  */
@@ -43,7 +45,7 @@ class FailingReadStream
     {
         $url = parse_url($path);
         $host = $url['host'] ?? '';
-        $this->mode = in_array($host, ['breaks', 'ends', 'closes', 'locked'], true) ? $host : 'fails';
+        $this->mode = in_array($host, ['breaks', 'ends', 'closes', 'locked', 'suspends', 'throws'], true) ? $host : 'fails';
         $this->endUnnoticed = $this->mode === 'closes' ? 2 : 0;
 
         $pieces = substr($url['path'] ?? '', 1);
@@ -63,6 +65,11 @@ class FailingReadStream
 
     public function stream_read(): string|false
     {
+        if ($this->mode === 'suspends' && \Fiber::getCurrent() !== null) {
+            $this->mode = 'ends';
+            \Fiber::suspend();
+        }
+
         if ($this->remaining > 0) {
             $length = min(8192, $this->remaining);
             $this->remaining -= $length;
@@ -98,6 +105,10 @@ class FailingReadStream
 
     public function stream_close(): void
     {
+        if ($this->mode === 'throws') {
+            throw new \RuntimeException('Close failed');
+        }
+
         trigger_error('Close failed', E_USER_WARNING);
     }
 

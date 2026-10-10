@@ -351,21 +351,41 @@ final class EnvLoader
             throw new Exception\FileNotFoundException("Not a local file: $path");
         }
 
-        // The warnings of opening and reading (open_basedir, a failed open or read, those of a stream wrapper) do not
-        // reach an error handler of the application: every failure is reported as an exception of this library, and
-        // a handler that throws even for suppressed warnings would replace it with an ErrorException of its own
+        // A URL is read as in 2.0: the warnings are suppressed with @, and an error handler that throws anyway
+        // throws from here, as an exception of the wrapper does. No handler of this library may stand over the code
+        // of a wrapper: written in PHP, it can suspend a fiber, and the error handler belongs to the whole process -
+        // one that another fiber installed meanwhile would be removed when this one is restored
+        if ($streamUrl) {
+            return self::readFile($path, true);
+        }
+
+        // A local file runs no code of the application (unless it replaced the plain file wrapper). Its warnings
+        // (open_basedir, a failed open or read) do not reach an error handler of the application: a handler that
+        // throws even for suppressed warnings would replace the exception of this library with its own
         set_error_handler(static fn (): bool => true);
 
         try {
-            $handle = self::open($path, $streamUrl);
-
-            try {
-                return self::contents($handle, $path, $streamUrl);
-            } finally {
-                fclose($handle);
-            }
+            return self::readFile($path, false);
         } finally {
             restore_error_handler();
+        }
+    }
+
+    /**
+     * Opens, reads and closes the file. Every warning is suppressed with @: a URL reaches here without a handler of
+     * this library (read()).
+     *
+     * @throws Exception\FileNotFoundException
+     * @throws Exception\FileNotReadableException
+     */
+    private static function readFile(string $path, bool $streamUrl): string
+    {
+        $handle = self::open($path, $streamUrl);
+
+        try {
+            return self::contents($handle, $path, $streamUrl);
+        } finally {
+            @fclose($handle);
         }
     }
 
@@ -381,7 +401,7 @@ final class EnvLoader
     private static function open(string $path, bool $streamUrl)
     {
         // Also false outside open_basedir
-        if (!file_exists($path)) {
+        if (!@file_exists($path)) {
             throw new Exception\FileNotFoundException("File not found: $path");
         }
 
@@ -393,7 +413,7 @@ final class EnvLoader
 
         // A local file is opened without blocking ("n", O_NONBLOCK of the plain file wrapper): a FIFO would wait for
         // a writer before it could be rejected
-        $handle = fopen($path, $streamUrl ? 'rb' : 'rbn');
+        $handle = @fopen($path, $streamUrl ? 'rb' : 'rbn');
 
         if ($handle === false) {
             throw new Exception\FileNotReadableException("Could not read file: $path");
@@ -421,7 +441,7 @@ final class EnvLoader
         // of the file from a stream that has stopped delivering (a timeout, say)
         $content = '';
         while (true) {
-            $chunk = fread($handle, self::CHUNK_SIZE);
+            $chunk = @fread($handle, self::CHUNK_SIZE);
 
             if ($chunk === false) {
                 throw new Exception\FileNotReadableException("Could not read file: $path");
