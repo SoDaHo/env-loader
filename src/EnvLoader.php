@@ -12,7 +12,8 @@ namespace Sodaho\EnvLoader;
  * was; messages never carry a value or a raw line of the file, only the path, the line number and, once it is
  * valid, the key, and the arguments in the stack traces of its exceptions hide them (#[\SensitiveParameter]).
  * Not covered: the backtrace PHP prints for a fatal error, such as memory running out, can show the start of a
- * line or of the file (README); with no file larger than MAX_FILE_SIZE read, that takes a memory_limit of a few MiB.
+ * line or of the file (README); with no file larger than MAX_FILE_SIZE read, that takes a memory_limit of up to about
+ * 16 MiB.
  */
 final class EnvLoader
 {
@@ -79,17 +80,18 @@ final class EnvLoader
         $values = self::parse($path, $localOnly);
         $names = self::requiredNames($required);
 
-        // The value of every key is decided once, for the check and for writing: what passes the check is what is
-        // written. The keys of the file first, then the required keys that only the environment may have
-        $resolved = [];
-        foreach ([...array_keys($values), ...$names] as $key) {
-            if (!array_key_exists($key, $resolved)) {
-                $resolved[$key] = self::resolve($key, $values, $overwrite);
+        // The value each required key will have in $_ENV, decided once: the check below and the writing use it, so
+        // what passes the check is what is written. Only for the required keys: a pair for every key of the file
+        // would hold memory in proportion to the number of keys
+        $requiredValues = [];
+        foreach ($names as $key) {
+            if (!array_key_exists($key, $requiredValues)) {
+                $requiredValues[$key] = self::resolve($key, $values, $overwrite);
             }
         }
 
         if ($rejectRequestVariables) {
-            self::rejectRequestVariables($resolved);
+            self::rejectRequestVariables($values, $names, $overwrite);
         }
 
         // Checked before writing, so a failed load leaves $_ENV untouched. Every key is checked before throwing:
@@ -97,8 +99,8 @@ final class EnvLoader
         $missing = [];
         $notString = [];
         $empty = [];
-        foreach ($names as $key) {
-            $found = $resolved[$key];
+        foreach ($requiredValues as $key => $found) {
+            $key = (string) $key;
             if ($found === null) {
                 $missing[$key] = $key;
             } elseif (!is_string($found[1])) {
@@ -118,10 +120,25 @@ final class EnvLoader
             throw new Exception\MissingRequiredKeyException(implode('; ', $problems));
         }
 
-        // A key in $_ENV keeps its value; one from the file or the process environment is copied, also a required
-        // key that only the process environment has: what is required can be read from $_ENV
-        foreach ($resolved as $key => $found) {
-            if ($found !== null && $found[0] !== 'env') {
+        // A key in $_ENV keeps its value. A required key is written as it was checked; for the other keys of the
+        // file the process environment is asked here, once
+        foreach ($values as $key => $value) {
+            if ($overwrite) {
+                $_ENV[$key] = $value;
+            } elseif (!array_key_exists($key, $_ENV)) {
+                $found = $requiredValues[$key] ?? null;
+                if ($found !== null) {
+                    $_ENV[$key] = $found[1];
+                } else {
+                    $fromProcess = self::processVariable($key);
+                    $_ENV[$key] = $fromProcess === false ? $value : $fromProcess;
+                }
+            }
+        }
+
+        // A required key that only the process environment has is copied: what is required can be read from $_ENV
+        foreach ($requiredValues as $key => $found) {
+            if ($found !== null && $found[0] === 'process' && !array_key_exists($key, $_ENV)) {
                 $_ENV[$key] = $found[1];
             }
         }
@@ -204,12 +221,19 @@ final class EnvLoader
      * value from the request (under plain CGI the process environment is the request, and processVariable() says
      * false there). The CLI has no request.
      *
-     * @param array<array{'file'|'env'|'process', mixed}|null> $resolved
+     * Checked are the keys of the file, unless the file overwrites them, and the required keys.
+     *
+     * @param array<string, string> $values
+     * @param list<string> $names
      *
      * @throws Exception\RequestVariableException
      */
-    private static function rejectRequestVariables(#[\SensitiveParameter] array $resolved): void
-    {
+    private static function rejectRequestVariables(
+        #[\SensitiveParameter]
+        array $values,
+        array $names,
+        bool $overwrite
+    ): void {
         $requestInEnv = !in_array(PHP_SAPI, ['cli', 'phpdbg'], true)
             && stripos((string) ini_get('variables_order'), 'E') !== false;
         if (!$requestInEnv) {
@@ -217,12 +241,13 @@ final class EnvLoader
         }
 
         $fromRequest = [];
-        foreach ($resolved as $key => $found) {
-            $key = (string) $key;
-            $requestName = str_starts_with($key, 'HTTP_') || str_starts_with($key, 'REDIRECT_')
-                || in_array($key, self::REQUEST_VARIABLES, true);
-
-            if ($found !== null && $found[0] === 'env' && $requestName && $found[1] !== self::processVariable($key)) {
+        foreach ($overwrite ? [] : $values as $key => $value) {
+            if (self::isFromRequest($key)) {
+                $fromRequest[$key] = $key;
+            }
+        }
+        foreach ($names as $key) {
+            if (!($overwrite && array_key_exists($key, $values)) && self::isFromRequest($key)) {
                 $fromRequest[$key] = $key;
             }
         }
@@ -235,6 +260,18 @@ final class EnvLoader
         if ($message !== null) {
             throw new Exception\RequestVariableException($message);
         }
+    }
+
+    /**
+     * Whether load() would take the value of the key from $_ENV, where a request may have put it: the key is named
+     * like a request variable, and its value there is not the one of the process environment.
+     */
+    private static function isFromRequest(string $key): bool
+    {
+        $requestName = str_starts_with($key, 'HTTP_') || str_starts_with($key, 'REDIRECT_')
+            || in_array($key, self::REQUEST_VARIABLES, true);
+
+        return $requestName && array_key_exists($key, $_ENV) && $_ENV[$key] !== self::processVariable($key);
     }
 
     /**
@@ -317,7 +354,7 @@ final class EnvLoader
             // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Empty as the
             // parser sees it: a line of whitespace is skipped like an empty one, so it keeps the BOM possible. Only
             // the whole sequence: single bytes of it, or a second BOM, stay and make the key invalid
-            if ($bomPossible && trim($line, self::WHITESPACE) !== '') {
+            if ($bomPossible && strspn($line, self::WHITESPACE) !== strlen($line)) {
                 if (str_starts_with($line, "\xEF\xBB\xBF")) {
                     $line = substr($line, 3);
                 }

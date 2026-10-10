@@ -19,8 +19,8 @@ SAPI (CLI, PHP-FPM, CGI, …), `variables_order` and, if you have one, a minimal
 
 ## Scope
 
-The library parses a file into strings and writes them to `$_ENV`: no variable expansion, nothing in the file is run, no value
-appears in an exception message. These are outside its reach by design, and documented in the README:
+The library parses a file into strings and writes them to `$_ENV`: no variable expansion, nothing in the file is run,
+no value appears in an exception message. These are outside its reach by design, and documented in the README:
 
 - **The path is trusted input.** A URL is opened with its stream wrapper, as in 2.0; `localOnly: true` reads a local
   file only. A report that needs a path built from a request is a usage error in the application.
@@ -31,6 +31,6 @@ appears in an exception message. These are outside its reach by design, and docu
   whether a secret is long or strong enough.
 - **The content of `format()` is for `parse()`**, not for a shell that would expand `$`, `${…}` and backticks.
 - **Fatal errors.** The backtrace PHP prints for a fatal error can show the start of a line or of the file; no file
-  larger than 1 MiB is read, so that takes a `memory_limit` of a few MiB. `zend.exception_ignore_args=1` keeps the
-  arguments out.
+  larger than 1 MiB is read, so that takes a `memory_limit` of up to about 16 MiB (README).
+  `zend.exception_ignore_args=1` keeps the arguments out.
 - **Long-running workers** share `$_ENV` between requests: load the file once when the worker starts.
