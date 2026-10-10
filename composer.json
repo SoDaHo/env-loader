@@ -1,6 +1,6 @@
 {
   "name": "sodaho/env-loader",
-  "description": "Lightweight .env file loader for PHP",
+  "description": "Loads .env files into $_ENV for PHP",
   "keywords": ["env", "dotenv", "environment", "config", "loader"],
   "type": "library",
   "license": "MIT",

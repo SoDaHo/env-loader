@@ -11,27 +11,21 @@ Only the latest release gets fixes.
 
 ## Reporting a vulnerability
 
-Report vulnerabilities privately through GitHub's private vulnerability reporting:
+Report privately through GitHub's private vulnerability reporting:
 https://github.com/SoDaHo/env-loader/security/advisories/new
 
-Please do not open a public issue for a security problem. Include the affected version, the PHP version and
-SAPI (CLI, PHP-FPM, CGI, …), `variables_order` and, if you have one, a minimal reproduction.
+Do not open a public issue. Include the affected version, the PHP version and SAPI (CLI, PHP-FPM, CGI),
+`variables_order` and, if possible, a minimal reproduction.
 
 ## Scope
 
-The library parses a file into strings and writes them to `$_ENV`: no variable expansion, nothing in the file is run,
-no value appears in an exception message. These are outside its reach by design, and documented in the README:
+Outside the reach of the library (README, section Security):
 
-- **The path is trusted input.** A URL is opened with its stream wrapper, as in 2.0; `localOnly: true` reads a local
-  file only. A report that needs a path built from a request is a usage error in the application.
-- **`variables_order` with `E`.** Under PHP-FPM and CGI PHP itself fills `$_ENV` with the request then, and `$_ENV`
-  wins over the file. The README asks for `variables_order = "GPCS"`; `rejectRequestVariables: true` is a guard on
-  top, for the names a request can bring.
-- **`required` checks presence**, a string value and, with `requireNonEmpty: true`, that the value is not empty — not
-  whether a secret is long or strong enough.
-- **The content of `format()` is for `parse()`**, not for a shell that would expand `$`, `${…}` and backticks.
-- **Fatal errors.** The backtrace PHP prints for a fatal error can show the start of a line or of the file; no file
-  larger than 1 MiB is read, so that takes a `memory_limit` of up to about 18 MiB (README).
-  `zend.exception_ignore_args=1` keeps the arguments out.
-- **Long-running workers** share `$_ENV` between requests: load the file once when the worker starts. A replaced
-  plain file wrapper that suspends fibers, or file hooks that make reading yield, are not supported (README).
+- The path is trusted input: without `localOnly: true`, a URL is opened with its stream wrapper.
+- With an `E` in `variables_order`, PHP-FPM and CGI fill `$_ENV` with the request, and `$_ENV` wins over the file.
+  `rejectRequestVariables: true` guards the listed names only.
+- `required` checks presence, a string value and, with `requireNonEmpty`, emptiness; not the strength of a secret.
+- `format()` output is not escaped for a shell.
+- The backtrace PHP prints for a fatal error can show the start of a line of the file.
+- Long-running workers share `$_ENV` between requests. A replaced plain file wrapper that suspends fibers is not
+  supported.
