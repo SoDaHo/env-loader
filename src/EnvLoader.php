@@ -162,7 +162,8 @@ final class EnvLoader
      */
     public static function parse(string $path, bool $allowStreamWrappers = false): array
     {
-        if (!$allowStreamWrappers && self::isStreamUrl($path)) {
+        $streamUrl = self::isStreamUrl($path);
+        if ($streamUrl && !$allowStreamWrappers) {
             throw new Exception\FileNotFoundException("Stream wrapper not allowed: $path");
         }
 
@@ -171,14 +172,17 @@ final class EnvLoader
             throw new Exception\FileNotFoundException("File not found: $path");
         }
 
-        if (!is_file($path)) {
+        // A URL is checked with the stat of its wrapper before it is opened, as in 2.0: not every wrapper can stat
+        // an open stream. A local file is checked after opening, on the handle (below)
+        if ($streamUrl && !is_file($path)) {
             throw new Exception\FileNotFoundException("Not a file: $path");
         }
 
         // Whether the file can be read is decided by opening it, not by asking first: is_readable() checks the
         // real user instead of the effective one, and the file may change between the question and the opening.
-        // The warning is suppressed, the failure reported as an exception
-        $handle = @fopen($path, 'rb');
+        // A local file is opened without blocking ("n", O_NONBLOCK of the plain file wrapper): a FIFO would wait for
+        // a writer before it could be rejected. The warning is suppressed, the failure reported as an exception
+        $handle = @fopen($path, $streamUrl ? 'rb' : 'rbn');
 
         if ($handle === false) {
             throw new Exception\FileNotReadableException("Could not read file: $path");
@@ -188,6 +192,11 @@ final class EnvLoader
         $bomPossible = true;
 
         try {
+            // Checked on what was opened, not on the name: by now the name may lead elsewhere (a FIFO, a device)
+            if (!$streamUrl && !self::isRegularFile($handle)) {
+                throw new Exception\FileNotFoundException("Not a file: $path");
+            }
+
             $lines = self::lines($handle);
 
             foreach ($lines as $lineNumber => $line) {
@@ -219,6 +228,19 @@ final class EnvLoader
         }
 
         return $result;
+    }
+
+    /**
+     * Whether an open local file is a regular file: a directory, FIFO or device has no end to read to, or none
+     * that is a file.
+     *
+     * @param resource $handle
+     */
+    private static function isRegularFile($handle): bool
+    {
+        $stat = fstat($handle);
+
+        return $stat !== false && ($stat['mode'] & 0o170000) === 0o100000;
     }
 
     /**

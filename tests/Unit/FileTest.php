@@ -52,7 +52,8 @@ class FileTest extends EnvLoaderTestCase
     #[DataProvider('noRegularFileProvider')]
     public function testPathThatIsNoRegularFileThrowsFileNotFoundException(string $name): void
     {
-        // Only a regular file is read: a FIFO would block, a device has no end
+        // Only a regular file is read: a FIFO is opened without blocking and rejected, a device has no end. Checked
+        // after opening, on the handle: before it, the name could still be replaced
         $path = $name === 'fifo' ? $this->tempDir . '/fifo' : $name;
         if ($name === 'fifo' && !(function_exists('posix_mkfifo') && posix_mkfifo($path, 0o600))) {
             $this->markTestSkipped('Cannot create a FIFO here');
@@ -64,6 +65,25 @@ class FileTest extends EnvLoaderTestCase
         $this->expectException(FileNotFoundException::class);
         $this->expectExceptionMessage("Not a file: $path");
         EnvLoader::parse($path);
+    }
+
+    public function testSocketCannotBeRead(): void
+    {
+        // A socket cannot be opened as a file at all
+        $path = $this->tempDir . '/env.sock';
+        $server = @stream_socket_server("unix://$path");
+        if ($server === false) {
+            $this->markTestSkipped('Cannot create a Unix socket here');
+        }
+
+        try {
+            EnvLoader::parse($path);
+            $this->fail('Expected FileNotReadableException');
+        } catch (FileNotReadableException $e) {
+            $this->assertSame("Could not read file: $path", $e->getMessage());
+        } finally {
+            fclose($server);
+        }
     }
 
     public function testSymlinkToAFileIsRead(): void

@@ -56,6 +56,8 @@ class StreamWrapperTest extends EnvLoaderTestCase
         return [
             'phar' => ['phar://{phar}/inner.env', '{"TEST_KEY":"from-phar"}'],
             'file' => ['file://{plain}', '{"TEST_KEY":"plain"}'],
+            // A URL is checked with the stat of its wrapper before it is opened
+            'directory in a phar' => ['phar://{phar}/directory', 'Not a file: {path}'],
             // Wrappers that cannot stat a path are not found, as in 2.0
             'php://filter' => ['php://filter/read=string.toupper/resource={plain}', 'File not found: {path}'],
             'data' => ['data://text/plain,TEST_KEY=1', 'File not found: {path}'],
@@ -100,7 +102,8 @@ class StreamWrapperTest extends EnvLoaderTestCase
     }
 
     /**
-     * Replaces {plain} with a local .env file and {phar} with an archive holding inner.env, built where needed.
+     * Replaces {plain} with a local .env file and {phar} with an archive holding inner.env and directory/inner.env,
+     * built where needed.
      */
     private function expand(string $path): string
     {
@@ -109,6 +112,7 @@ class StreamWrapperTest extends EnvLoaderTestCase
             $phar = $this->tempDir . '/archive.phar';
             $script = '$phar = new Phar($argv[2]);'
                 . '$phar->addFromString("inner.env", "TEST_KEY=from-phar");'
+                . '$phar->addFromString("directory/inner.env", "TEST_KEY=from-phar");'
                 . '$phar->setStub("<?php __HALT_COMPILER();");'
                 . 'echo "built";';
             if (!is_file($phar)) {
