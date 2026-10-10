@@ -178,9 +178,10 @@ final class EnvLoader
             $lines = self::lines($handle);
 
             foreach ($lines as $lineNumber => $line) {
-                // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Only the whole
+                // Strip one UTF-8 BOM from the first non-empty line (common in Windows-created files). Empty as the parser
+                // sees it: a line of whitespace is skipped like an empty one, so it keeps the BOM possible. Only the whole
                 // sequence: single bytes of it, or a second BOM, stay and make the key invalid
-                if ($bomPossible && $line !== '') {
+                if ($bomPossible && trim($line, self::WHITESPACE) !== '') {
                     if (str_starts_with($line, "\xEF\xBB\xBF")) {
                         $line = substr($line, 3);
                     }

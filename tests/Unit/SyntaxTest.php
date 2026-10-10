@@ -122,6 +122,7 @@ class SyntaxTest extends EnvLoaderTestCase
             ],
             'BOM with CRLF' => ["\xEF\xBB\xBFTEST_A=1\r\nTEST_B=2\r\n", ['TEST_A' => '1', 'TEST_B' => '2']],
             'BOM after empty lines' => ["\n\r\n\r\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
+            'BOM after lines of whitespace' => [" \t\n\v\f\0\r\xEF\xBB\xBFTEST_A=1\nTEST_B=2", ['TEST_A' => '1', 'TEST_B' => '2']],
             'CR line endings' => [
                 "TEST_A=1\rTEST_B=\"x y\"\r\rTEST_C='z'\r",
                 ['TEST_A' => '1', 'TEST_B' => 'x y', 'TEST_C' => 'z'],

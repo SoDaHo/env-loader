@@ -149,7 +149,7 @@ Details:
 - **`export`** is followed by a space or a tab, as in a shell: `export<VT>KEY=1` (vertical tab, form feed) throws `InvalidKeyException`.
 - **NUL bytes** inside a value throw `InvalidValueException`, quoted or not: no environment value can hold one.
 - **Duplicate keys:** the last one wins.
-- **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; one UTF-8 BOM at the start of the first line that is not empty is skipped (only the whole three bytes). A value cannot contain a line break.
+- **Files:** LF, CRLF or CR line endings, also mixed, each counting as one line; one UTF-8 BOM at the start of the first line that is not empty (a line of whitespace counts as empty) is skipped (only the whole three bytes). A value cannot contain a line break.
 - **Encoding:** values are bytes, returned as they are in the file, without conversion. Write the file in UTF-8 or ASCII. Other encodings are not recognized: a value in Latin-1 comes back in Latin-1, and a file in UTF-16 is neither recognized nor reliably rejected.
 
 ## Exceptions
