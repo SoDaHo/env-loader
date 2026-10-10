@@ -8,7 +8,8 @@ namespace Sodaho\EnvLoader\Tests\Unit;
  * Stands in for the plain file wrapper ("file") for a file that is replaced between a look at its name and the
  * opening: the name is a regular file, what is opened is of the type in $openedType (a FIFO, say). Opened without
  * "n" (O_NONBLOCK) a FIFO would wait for a writer: this stand-in refuses to open instead of hanging. With $suspends it
- * stands for a replaced plain file wrapper that suspends a fiber while it reads.
+ * stands for a replaced plain file wrapper that suspends a fiber while it reads, with $stops for one whose read
+ * then stops without the end of the file.
  */
 class SwappedFileStream
 {
@@ -17,6 +18,9 @@ class SwappedFileStream
 
     // Whether the first read suspends the fiber it runs in, as a wrapper on an event loop does
     public static bool $suspends = false;
+
+    // Whether reading stops after the suspension: no data, and no end of the file
+    public static bool $stops = false;
 
     /** @var resource|null */
     public $context;
@@ -43,7 +47,7 @@ class SwappedFileStream
             \Fiber::suspend();
         }
 
-        if ($this->read) {
+        if ($this->read || self::$stops) {
             return '';
         }
         $this->read = true;
@@ -56,7 +60,7 @@ class SwappedFileStream
      */
     public function stream_eof(): bool
     {
-        return $this->read;
+        return $this->read && !self::$stops;
     }
 
     /**

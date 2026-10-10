@@ -186,6 +186,47 @@ class ErrorHandlerTest extends EnvLoaderTestCase
         $this->assertSame(['second: after'], $seen);
     }
 
+    public function testReplacedPlainFileWrapperThatSuspendsAFiberCanTurnAWarningOfOtherCodeIntoThePrevious(): void
+    {
+        // The limit (README): a warning raised while the read waits goes to the handler of the library; where the read
+        // then fails, it becomes the previous of the exception, whatever its text
+        class_exists(EnvLoader::class);
+        class_exists(FileNotReadableException::class);
+        class_exists(SwappedFileStream::class);
+        SwappedFileStream::$openedType = 0o100000;
+        SwappedFileStream::$suspends = true;
+        SwappedFileStream::$stops = true;
+        $path = $this->tempDir . '/.env';
+        $result = null;
+
+        try {
+            stream_wrapper_unregister('file');
+            stream_wrapper_register('file', SwappedFileStream::class);
+            $fiber = new \Fiber(static function () use ($path): ?FileNotReadableException {
+                try {
+                    EnvLoader::parse($path);
+                } catch (FileNotReadableException $e) {
+                    return $e;
+                }
+
+                return null;
+            });
+            $fiber->start();
+            trigger_error('a warning of other code', E_USER_WARNING);
+            $fiber->resume();
+            $result = $fiber->getReturn();
+        } finally {
+            stream_wrapper_restore('file');
+            SwappedFileStream::$suspends = false;
+            SwappedFileStream::$stops = false;
+            SwappedFileStream::$openedType = 0o010000;
+        }
+
+        $this->assertInstanceOf(FileNotReadableException::class, $result);
+        $this->assertSame("Could not read file: $path", $result->getMessage());
+        $this->assertSame('a warning of other code', $result->getPrevious()?->getMessage());
+    }
+
     public function testReplacedPlainFileWrapperThatSuspendsAFiberLeavesItsHandlerUnderTwoInstalledMeanwhile(): void
     {
         // The limit (README): with two handlers installed meanwhile, the second stays on top, but the handler of the
