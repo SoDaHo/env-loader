@@ -74,6 +74,32 @@ class RequireNonEmptyTest extends EnvLoaderTestCase
         ], $_ENV);
     }
 
+    /**
+     * @return array<string, array{array<mixed>|string}>
+     */
+    public static function noRequiredKeyProvider(): array
+    {
+        return ['none' => [[]], 'empty string' => [''], 'only empty entries' => [[' ', null, false]]];
+    }
+
+    /**
+     * @param array<string>|string $required Declared as load() expects it, to get past static analysis
+     */
+    #[DataProvider('noRequiredKeyProvider')]
+    public function testRequireNonEmptyWithoutARequiredKeyIsRejected(array|string $required): void
+    {
+        // It checks the required keys only: without one it would check nothing, silently
+        $_ENV = ['TEST_EXISTING' => 'original'];
+
+        try {
+            EnvLoader::load($this->createEnvFile('TEST_SECRET='), required: $required, requireNonEmpty: true);
+            $this->fail('Expected InvalidArgumentException');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame('requireNonEmpty needs required keys', $e->getMessage());
+            $this->assertSame(['TEST_EXISTING' => 'original'], $_ENV);
+        }
+    }
+
     public function testEveryProblemIsNamedInOneMessage(): void
     {
         $_ENV = ['TEST_NO_STRING' => 42];

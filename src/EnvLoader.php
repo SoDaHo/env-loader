@@ -65,7 +65,8 @@ final class EnvLoader
      * @throws Exception\InvalidValueException
      * @throws Exception\MissingRequiredKeyException
      * @throws Exception\RequestVariableException
-     * @throws \InvalidArgumentException An entry of $required has no string form
+     * @throws \InvalidArgumentException An entry of $required has no string form, or $requireNonEmpty has no
+     *                                   required key to check
      *
      * @return array<string, string> The values of the file, whether or not they were written to $_ENV
      */
@@ -79,6 +80,11 @@ final class EnvLoader
     ): array {
         $values = self::parse($path, $localOnly);
         $names = self::requiredNames($required);
+
+        // It reads like "no value may be empty" but checks the required keys only: without one it would check nothing
+        if ($requireNonEmpty && $names === []) {
+            throw new \InvalidArgumentException('requireNonEmpty needs required keys');
+        }
 
         if ($rejectRequestVariables) {
             self::rejectRequestVariables($values, $names, $overwrite);
