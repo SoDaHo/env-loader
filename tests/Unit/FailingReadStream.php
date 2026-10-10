@@ -41,6 +41,9 @@ class FailingReadStream
 
     private int $remaining = 0;
 
+    /**
+     * Takes the mode from the host of the URL and the pieces from its path.
+     */
     public function stream_open(string $path): bool
     {
         $url = parse_url($path);
@@ -63,6 +66,9 @@ class FailingReadStream
         return true;
     }
 
+    /**
+     * The next piece; after the last one a failure, or no data, as the mode says.
+     */
     public function stream_read(): string|false
     {
         if ($this->mode === 'suspends' && \Fiber::getCurrent() !== null) {
@@ -91,6 +97,9 @@ class FailingReadStream
         return '';
     }
 
+    /**
+     * Whether the end is reported: after a failure only in the mode "breaks", otherwise once the pieces are read.
+     */
     public function stream_eof(): bool
     {
         if ($this->mode === 'fails' || $this->mode === 'breaks') {
@@ -103,6 +112,9 @@ class FailingReadStream
         return $this->endUnnoticed-- <= 0;
     }
 
+    /**
+     * Closing warns, or throws in the mode "throws".
+     */
     public function stream_close(): void
     {
         if ($this->mode === 'throws') {
@@ -113,11 +125,12 @@ class FailingReadStream
     }
 
     /**
+     * A regular file, readable for everyone - or, "locked", for nobody.
+     *
      * @return array<string, int>
      */
     public function url_stat(string $path): array
     {
-        // A regular file, readable for everyone - or, "locked", for nobody
         return ['mode' => (parse_url($path, PHP_URL_HOST) === 'locked') ? 0o100000 : 0o100444];
     }
 }

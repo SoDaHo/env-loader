@@ -145,19 +145,12 @@ class RequestTest extends EnvLoaderTestCase
             . 'echo json_encode([function_exists("getenv"), $_ENV["TEST_PROCESS"]]);'
             . 'try { Sodaho\EnvLoader\EnvLoader::load($argv[2], required: ["TEST_REQUIRED"]); }'
             . 'catch (Throwable $e) { echo $e::class; }';
-        $process = proc_open(
-            [
-                PHP_BINARY, '-d', 'disable_functions=getenv', '-d', 'variables_order=GPCS', '-d', 'display_errors=1',
-                '-r', $script, dirname(__DIR__, 2) . '/vendor/autoload.php', $path,
-            ],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            null,
-            ['TEST_PROCESS' => 'process', 'TEST_REQUIRED' => 'process'] + getenv()
+        $output = $this->runInChildProcess(
+            $script,
+            $path,
+            ['-d', 'disable_functions=getenv', '-d', 'variables_order=GPCS', '-d', 'display_errors=1'],
+            ['TEST_PROCESS' => 'process', 'TEST_REQUIRED' => 'process']
         );
-        $this->assertIsResource($process);
-        $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
-        proc_close($process);
 
         // Without getenv() only $_ENV and the file count, as in 1.x
         $this->assertSame('[false,"file"]' . MissingRequiredKeyException::class, $output);

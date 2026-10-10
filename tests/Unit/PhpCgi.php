@@ -74,6 +74,7 @@ class PhpCgi
 
             $output = '';
             $ended = false;
+            $end = '';
             while (!$ended) {
                 $fields = unpack('Cversion/Ctype/nid/nlength/Cpadding', self::read($socket, 8, $deadline));
                 $type = $fields['type'] ?? null;
@@ -90,11 +91,16 @@ class PhpCgi
                     $output .= $content;
                 }
                 $ended = $type === self::END_REQUEST;
+                if ($ended) {
+                    $end = $content;
+                }
             }
             fclose($socket);
         } finally {
             self::stop($process);
         }
+
+        self::assertCompleted($end, $output);
 
         return self::body($output);
     }
@@ -157,6 +163,24 @@ class PhpCgi
         }
 
         return self::body($output);
+    }
+
+    /**
+     * The request has to end as complete: application status 0 and protocol status 0 in the end record, and no status
+     * of a server error in the headers. php-cgi sends status 0 even for exit(3) (measured), and a fatal error shows
+     * as status 500 only without display_errors; with it, the body holds the message.
+     */
+    private static function assertCompleted(string $end, string $output): void
+    {
+        $status = unpack('NappStatus/CprotocolStatus', $end);
+        if ($status === false || ($status['appStatus'] ?? null) !== 0 || ($status['protocolStatus'] ?? null) !== 0) {
+            throw new \RuntimeException('php-cgi did not complete the request: ' . bin2hex($end));
+        }
+
+        $headers = explode("\r\n\r\n", $output, 2)[0];
+        if (str_starts_with($headers, 'Status: 5') || str_contains($headers, "\r\nStatus: 5")) {
+            throw new \RuntimeException('php-cgi answered with a server error: ' . strtok($headers, "\r\n"));
+        }
     }
 
     /**
