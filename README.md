@@ -46,6 +46,9 @@ EnvLoader::load('.env', required: ['DB_HOST', 'DB_NAME']);
 // Required keys as comma-separated string
 EnvLoader::load('.env', required: 'DB_HOST,DB_NAME');
 
+// Required keys whose values must not be empty either
+EnvLoader::load('.env', required: ['JWT_SECRET'], requireNonEmpty: true);
+
 // Combine options
 EnvLoader::load('.env', overwrite: true, required: ['DB_HOST']);
 
@@ -59,7 +62,7 @@ Without `overwrite`, the environment wins over the file. For every key of the fi
 2. the variable of the process environment (`getenv($key, true)`),
 3. the value of the file.
 
-A value from the process environment is copied into `$_ENV`, so the application reads everything from there, whatever `variables_order` in php.ini says. A variable that is set but empty counts as set. Only keys named in the file or in `required` are copied; the rest of the process environment stays out of `$_ENV`.
+A value from the process environment is copied into `$_ENV`, so the application reads everything from there, whatever `variables_order` in php.ini says. A variable that is set but empty counts as set (for required keys, `requireNonEmpty` rejects it). Only keys named in the file or in `required` are copied; the rest of the process environment stays out of `$_ENV`.
 
 The process environment is the environment of the PHP process itself: what Docker, systemd, the shell or `env[NAME]` in a PHP-FPM pool set. That includes what the system sets on its own (`PATH`, `HOME`, `USER`, `HOSTNAME`, in the official Docker image also `PHP_VERSION` and other `PHP_*`): a key of that name in the file loses against it.
 
@@ -72,7 +75,7 @@ What the web server passes with a request is not part of it. Under FastCGI (PHP-
 
 With `overwrite: true` the file wins: its values replace what `$_ENV` holds, whatever the process environment says.
 
-A required key may come from the file, from `$_ENV` or from the process environment; an empty value counts. If required keys are missing, the exception names all of them. If a required key is missing or the file cannot be parsed, `$_ENV` is left unchanged.
+A required key may come from the file, from `$_ENV` or from the process environment. Checked is the value `load()` leaves in `$_ENV`, and it has to be a string: a value of another type that the application put into `$_ENV` fails. An empty value counts, unless `requireNonEmpty: true` says otherwise. Then an empty value fails as well, also where an empty variable of the environment wins over the file: Docker Compose turns `JWT_SECRET: ${JWT_SECRET}` into an empty variable where the host has none, and the load fails instead of leaving an empty secret. `required` does not check whether a secret is long or strong enough; check that after loading. If required keys fail, the exception names all of them (`Missing required key: A; Empty required keys: B, C`). If a required key fails or the file cannot be parsed, `$_ENV` is left unchanged.
 
 `load()` returns the values of the file, as `parse()` does — also those the environment has overruled:
 
@@ -185,7 +188,7 @@ try {
 | `InvalidKeyException` | Key has invalid format (e.g. `123KEY`, `MY-KEY`) |
 | `UnterminatedQuoteException` | Quoted value missing closing quote |
 | `TrailingCharactersException` | Text other than a comment after the closing quote |
-| `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment |
+| `MissingRequiredKeyException` | Required key missing in file, `$_ENV` and process environment, its value in `$_ENV` is no string, or it is empty (`requireNonEmpty`) |
 | `InvalidValueException` | `parse()`, `load()`: a value contains a NUL byte. `format()`: value is not a string, or contains a line break or NUL byte |
 
 The warnings PHP raises while the file is opened and read (`open_basedir`, a failed open or read, also those of a stream wrapper) do not reach an error handler of yours: every failure is one of these exceptions, also where your handler throws even for warnings suppressed with `@`.

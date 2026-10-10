@@ -225,27 +225,51 @@ class LoadTest extends EnvLoaderTestCase
     public function testValueInEnvIsKeptAsItIs(): void
     {
         $this->setProcessVariable('TEST_NOT_A_STRING', 'process');
-        $this->setProcessVariable('TEST_REQUIRED', 'process');
         $path = $this->createEnvFile('TEST_NOT_A_STRING=file');
 
         foreach ([42, false, null] as $value) {
-            $_ENV = ['TEST_NOT_A_STRING' => $value, 'TEST_REQUIRED' => $value];
-            EnvLoader::load($path, required: ['TEST_REQUIRED']);
+            $_ENV = ['TEST_NOT_A_STRING' => $value];
+            EnvLoader::load($path);
 
-            $this->assertSame(['TEST_NOT_A_STRING' => $value, 'TEST_REQUIRED' => $value], $_ENV);
+            $this->assertSame(['TEST_NOT_A_STRING' => $value], $_ENV);
         }
     }
 
-    public function testRequiredKeyInEnvCountsWhateverItsValue(): void
+    /**
+     * @return array<string, array{mixed, string}>
+     */
+    public static function requiredValueThatIsNoStringProvider(): array
     {
-        $path = $this->createEnvFile('TEST_FROM_FILE=value');
+        return [
+            'integer' => [42, 'TEST_FROM_FILE=value'],
+            'false' => [false, 'TEST_FROM_FILE=value'],
+            'null' => [null, 'TEST_FROM_FILE=value'],
+            'array, also where the file has the key' => [['value'], "TEST_FROM_FILE=value\nTEST_REQUIRED=file"],
+        ];
+    }
 
-        foreach ([42, false, null] as $value) {
-            $_ENV = ['TEST_REQUIRED' => $value];
-            EnvLoader::load($path, required: ['TEST_REQUIRED']);
+    #[DataProvider('requiredValueThatIsNoStringProvider')]
+    public function testRequiredKeyWhoseValueInEnvIsNoStringThrows(mixed $value, string $content): void
+    {
+        // $_ENV keeps its entry and wins over the file, so a required key would end up without a string value. PHP
+        // itself puts only strings there: such a value comes from the application
+        $_ENV = ['TEST_REQUIRED' => $value];
 
-            $this->assertSame(['TEST_REQUIRED' => $value, 'TEST_FROM_FILE' => 'value'], $_ENV);
+        try {
+            EnvLoader::load($this->createEnvFile($content), required: ['TEST_REQUIRED']);
+            $this->fail('Expected MissingRequiredKeyException');
+        } catch (MissingRequiredKeyException $e) {
+            $this->assertSame('Required key without a string value: TEST_REQUIRED', $e->getMessage());
+            $this->assertSame(['TEST_REQUIRED' => $value], $_ENV);
         }
+    }
+
+    public function testRequiredKeyWhoseValueInEnvIsNoStringPassesWhereTheFileOverwritesIt(): void
+    {
+        $_ENV = ['TEST_REQUIRED' => false];
+        EnvLoader::load($this->createEnvFile('TEST_REQUIRED=file'), overwrite: true, required: ['TEST_REQUIRED']);
+
+        $this->assertSame(['TEST_REQUIRED' => 'file'], $_ENV);
     }
 
     public function testServerSuperglobalIsNotRead(): void

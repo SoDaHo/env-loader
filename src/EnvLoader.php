@@ -36,7 +36,9 @@ final class EnvLoader
      * Without overwrite, the environment wins over the file: a key keeps the value it has in $_ENV,
      * otherwise it takes the value of the process environment, otherwise the one of the file.
      *
-     * @param array<string>|string $required Required keys - array or comma-separated string
+     * @param array<string>|string $required Required keys - array or comma-separated string. Each has to end up
+     *                                       in $_ENV with a string value
+     * @param bool $requireNonEmpty The value of a required key must not be empty either
      * @param bool $allowStreamWrappers Open a URL (phar://, file://, ...) with its stream wrapper, see parse()
      *
      * @throws Exception\FileNotFoundException
@@ -55,14 +57,73 @@ final class EnvLoader
         string $path,
         bool $overwrite = false,
         array|string $required = [],
+        bool $requireNonEmpty = false,
         bool $allowStreamWrappers = false,
     ): array {
         $values = self::parse($path, $allowStreamWrappers);
+        $names = self::requiredNames($required);
 
-        // Handle required keys - normalize to a list of trimmed names
+        // The value of every key is decided once, for the check and for writing: what passes the check is what is
+        // written. The keys of the file first, then the required keys that only the environment may have
+        $resolved = [];
+        foreach ([...array_keys($values), ...$names] as $key) {
+            if (!array_key_exists($key, $resolved)) {
+                $resolved[$key] = self::resolve($key, $values, $overwrite);
+            }
+        }
+
+        // Checked before writing, so a failed load leaves $_ENV untouched. Every key is checked before throwing:
+        // one run names all of them. Only $_ENV can hold a value that is no string, set there by the application
+        $missing = [];
+        $notString = [];
+        $empty = [];
+        foreach ($names as $key) {
+            $found = $resolved[$key];
+            if ($found === null) {
+                $missing[$key] = $key;
+            } elseif (!is_string($found[1])) {
+                $notString[$key] = $key;
+            } elseif ($requireNonEmpty && $found[1] === '') {
+                $empty[$key] = $key;
+            }
+        }
+
+        $problems = array_filter([
+            // The message for missing keys alone stays as it was in 2.0
+            self::keyList('Missing required key', 'Missing required keys', $missing),
+            self::keyList('Required key without a string value', 'Required keys without a string value', $notString),
+            self::keyList('Empty required key', 'Empty required keys', $empty),
+        ]);
+        if ($problems !== []) {
+            throw new Exception\MissingRequiredKeyException(implode('; ', $problems));
+        }
+
+        // A key in $_ENV keeps its value; one from the file or the process environment is copied, also a required
+        // key that only the process environment has: what is required can be read from $_ENV
+        foreach ($resolved as $key => $found) {
+            if ($found !== null && $found[0] !== 'env') {
+                $_ENV[$key] = $found[1];
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * The required keys as a list of trimmed names, empty entries left out.
+     *
+     * @param array<mixed>|string $required
+     *
+     * @throws \InvalidArgumentException An entry has no string form
+     *
+     * @return list<string>
+     */
+    private static function requiredNames(array|string $required): array
+    {
         if (is_string($required)) {
             $required = explode(',', $required);
         }
+
         $names = [];
         $position = 0;
         foreach ($required as $key) {
@@ -82,45 +143,50 @@ final class EnvLoader
             }
         }
 
-        // Check before writing, so a failed load leaves $_ENV untouched. Every missing key is collected first:
-        // one run names all of them
-        $requiredFromProcess = [];
-        $missing = [];
-        foreach ($names as $key) {
-            if (array_key_exists($key, $values) || array_key_exists($key, $_ENV)) {
-                continue;
-            }
+        return $names;
+    }
 
-            $value = self::processVariable($key);
-            if ($value === false) {
-                $missing[$key] = $key;
-                continue;
-            }
-            $requiredFromProcess[$key] = $value;
+    /**
+     * Where load() takes the value of a key from, and the value, in the order the README gives: with overwrite the
+     * file; otherwise $_ENV, the process environment, the file. Null where none of them has the key.
+     *
+     * Asks the process environment at most once, and only where its answer counts.
+     *
+     * @param array<string, string> $values
+     *
+     * @return array{'file'|'env'|'process', mixed}|null
+     */
+    private static function resolve(string $key, #[\SensitiveParameter] array $values, bool $overwrite): ?array
+    {
+        $inFile = array_key_exists($key, $values);
+
+        if ($overwrite && $inFile) {
+            return ['file', $values[$key]];
+        }
+        if (array_key_exists($key, $_ENV)) {
+            return ['env', $_ENV[$key]];
         }
 
-        if ($missing !== []) {
-            // The message for a single key stays as it was in 2.0.0
-            throw new Exception\MissingRequiredKeyException(
-                count($missing) === 1
-                    ? 'Missing required key: ' . implode('', $missing)
-                    : 'Missing required keys: ' . implode(', ', $missing)
-            );
+        $fromProcess = self::processVariable($key);
+        if ($fromProcess !== false) {
+            return ['process', $fromProcess];
         }
 
-        foreach ($values as $key => $value) {
-            if ($overwrite) {
-                $_ENV[$key] = $value;
-            } elseif (!array_key_exists($key, $_ENV)) {
-                $fromProcess = self::processVariable($key);
-                $_ENV[$key] = $fromProcess === false ? $value : $fromProcess;
-            }
-        }
+        return $inFile ? ['file', $values[$key]] : null;
+    }
 
-        // A required key that only the process environment defines is copied: what is required can be read from $_ENV
-        $_ENV += $requiredFromProcess;
-
-        return $values;
+    /**
+     * "Label: A" for one key, "Labels: A, B" for several, null for none.
+     *
+     * @param array<string> $keys
+     */
+    private static function keyList(string $one, string $several, array $keys): ?string
+    {
+        return match (count($keys)) {
+            0 => null,
+            1 => "$one: " . implode('', $keys),
+            default => "$several: " . implode(', ', $keys),
+        };
     }
 
     /**
